@@ -27,6 +27,7 @@ ENV/
 .env
 .env.*
 *.env
+!.env.example
 
 # Generated logs
 *.log
