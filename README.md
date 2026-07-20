@@ -14,7 +14,8 @@ RootLens is expected to include telemetry ingestion for logs, metrics, and trace
 4. Detect representative incidents and generate evidence-backed root-cause hypotheses.
 5. Provide an investigation experience for reviewing incidents, correlated signals, and likely causes.
 
-Milestone 1 is underway with the Inventory Service health endpoints, request IDs,
-structured request logging, and a local PostgreSQL foundation. Inventory tables,
-CRUD functionality, and broader observability capabilities such as metrics and
-tracing remain planned for later work.
+Milestone 1 is underway with Inventory Service health endpoints, request IDs,
+structured request logging, a local PostgreSQL foundation, and the first
+persistent inventory-item create/read API. Update, delete, reservation, and
+quantity-adjustment behavior remains planned. Broader observability capabilities
+such as metrics and tracing are also not implemented yet.

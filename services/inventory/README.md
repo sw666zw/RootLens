@@ -1,15 +1,29 @@
 # RootLens Inventory Service
 
-The Inventory Service will eventually provide inventory capabilities for a
-system that RootLens can observe and diagnose. The current version provides
-liveness and database-readiness endpoints, request IDs, structured request
-logging, and the asynchronous PostgreSQL connection foundation. It does not
-create inventory tables, models, migrations, or CRUD operations.
+The Inventory Service provides a small system that RootLens can eventually
+observe and diagnose. It includes liveness and database-readiness endpoints,
+request IDs, structured request logging, and basic create/read operations for
+persistent inventory items.
 
-PostgreSQL will eventually persist inventory data. At this milestone, the
-service only opens asynchronous connections and runs `SELECT 1` for readiness.
-Docker Compose runs that single PostgreSQL dependency locally with a persistent
+The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
+name, non-negative on-hand quantity, and creation/update timestamps for each
+item. Update, delete, reservation, and quantity-adjustment behavior is not
+implemented yet.
+
+Docker Compose runs the single PostgreSQL dependency locally with a persistent
 named volume; it does not containerize the Inventory Service.
+
+## Database migrations
+
+A database migration is a versioned, reversible description of a schema
+change. This project uses Alembic migrations so schema changes are explicit,
+reviewable, and consistently applied in every environment. The application
+does not create tables during startup: doing so would hide schema changes in
+the runtime path and make deployment ordering and rollback harder to control.
+
+The initial migration creates `inventory_items`, including its primary key,
+unique and indexed SKU, and database check constraint that prevents negative
+quantities. Its downgrade removes the table.
 
 ## Local environment
 
@@ -22,8 +36,9 @@ cp .env.example .env
 
 The example values are local-development credentials, not production secrets.
 If `POSTGRES_PASSWORD` is changed, update the password embedded in
-`DATABASE_URL` to match. The application reads its connection string from the
-`DATABASE_URL` environment variable. A real `.env` remains ignored by Git.
+`DATABASE_URL` to match. The application and Alembic read the connection string
+from the `DATABASE_URL` environment variable. A real `.env` remains ignored by
+Git.
 
 Create and activate a Python 3.12 virtual environment, then install the service
 and its development dependencies:
@@ -35,7 +50,15 @@ python -m pip install --upgrade pip
 python -m pip install -e "services/inventory[dev]"
 ```
 
-## Start and inspect PostgreSQL
+Export all values from `.env` into the current shell before running Alembic:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+## Start PostgreSQL and apply migrations
 
 Start only PostgreSQL in the background:
 
@@ -53,11 +76,24 @@ The database is exposed only through `localhost:5432` by default. Compose uses
 the root `.env` automatically and stores database files in the named
 `postgres_data` volume.
 
-## Run and test the service
-
-Run the unit tests without requiring Docker or a live database:
+Apply all pending Inventory Service migrations after exporting `.env`:
 
 ```bash
+alembic -c services/inventory/alembic.ini upgrade head
+```
+
+Inspect the database's current migration revision:
+
+```bash
+alembic -c services/inventory/alembic.ini current
+```
+
+## Run and test the service
+
+Run Ruff and the unit tests without requiring Docker or a live database:
+
+```bash
+python -m ruff check services/inventory
 python -m pytest services/inventory
 ```
 
@@ -79,6 +115,34 @@ running and does not contact PostgreSQL. `GET /health/ready` is a readiness
 check: it returns `200` only when PostgreSQL answers a simple query, and returns
 `503` when the database is unavailable.
 
+Create an inventory item:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items \
+  -H 'Content-Type: application/json' \
+  -d '{"sku":"LAPTOP-001","name":"Demo Laptop","quantity":10}'
+```
+
+List all items in ascending SKU order:
+
+```bash
+curl -i http://127.0.0.1:8000/items
+```
+
+Retrieve one item by its exact SKU:
+
+```bash
+curl -i http://127.0.0.1:8000/items/LAPTOP-001
+```
+
+Posting a SKU that already exists returns HTTP `409` with:
+
+```json
+{
+  "detail": "An inventory item with this SKU already exists."
+}
+```
+
 Interactive API documentation is available at <http://127.0.0.1:8000/docs>,
 with alternative documentation at <http://127.0.0.1:8000/redoc>.
 
@@ -90,7 +154,7 @@ or blank, the service generates a UUID. The service returns the ID in the
 `X-Request-ID` response header and includes it in its structured request log.
 
 ```bash
-curl -i -H 'X-Request-ID: local-check-123' http://127.0.0.1:8000/health/ready
+curl -i -H 'X-Request-ID: local-check-123' http://127.0.0.1:8000/items
 ```
 
 Inventory Service application and request logs are emitted as JSON objects, one
