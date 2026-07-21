@@ -1,5 +1,6 @@
 """Create and read endpoints for inventory items."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,10 +8,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from inventory_service.database import get_database_session
+from inventory_service.logging_config import LOGGER_NAME, SERVICE_NAME
 from inventory_service.repositories import inventory_items
-from inventory_service.schemas import InventoryItemCreate, InventoryItemRead
+from inventory_service.request_context import get_request_id
+from inventory_service.schemas import (
+    InventoryItemCreate,
+    InventoryItemRead,
+    InventoryReservationRequest,
+    InventoryReservationResponse,
+)
 
 router = APIRouter(prefix="/items", tags=["items"])
+logger = logging.getLogger(f"{LOGGER_NAME}.reservation")
 
 
 @router.post(
@@ -58,3 +67,62 @@ async def get_item(
             detail="Inventory item not found.",
         )
     return InventoryItemRead.model_validate(item)
+
+
+@router.post(
+    "/{sku}/reserve",
+    response_model=InventoryReservationResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reserve_item(
+    sku: str,
+    reservation: InventoryReservationRequest,
+    session: Annotated[AsyncSession, Depends(get_database_session)],
+) -> InventoryReservationResponse:
+    """Atomically subtract a positive quantity from one inventory item."""
+    log_fields = {
+        "service": SERVICE_NAME,
+        "request_id": get_request_id(),
+        "sku": sku,
+        "requested_quantity": reservation.quantity,
+    }
+    try:
+        result = await inventory_items.reserve_inventory_item(
+            session,
+            sku,
+            reservation.quantity,
+        )
+    except inventory_items.InventoryItemNotFoundError as error:
+        logger.warning(
+            "inventory_reservation_rejected",
+            extra={**log_fields, "reason": "item_not_found"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found.",
+        ) from error
+    except inventory_items.InsufficientInventoryError as error:
+        logger.warning(
+            "inventory_reservation_rejected",
+            extra={**log_fields, "reason": "insufficient_inventory"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Insufficient inventory available.",
+        ) from error
+    except inventory_items.InventoryReservationDatabaseError as error:
+        logger.error("inventory_reservation_failed", extra=log_fields)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to reserve inventory.",
+        ) from error
+
+    logger.info(
+        "inventory_reservation_succeeded",
+        extra={**log_fields, "remaining_quantity": result.remaining_quantity},
+    )
+    return InventoryReservationResponse(
+        sku=result.sku,
+        reserved_quantity=result.reserved_quantity,
+        remaining_quantity=result.remaining_quantity,
+    )
