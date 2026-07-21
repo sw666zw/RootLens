@@ -3,12 +3,13 @@
 The Inventory Service provides a small system that RootLens can eventually
 observe and diagnose. It includes liveness and database-readiness endpoints,
 request IDs, structured request logging, and basic create/read operations for
-persistent inventory items.
+persistent inventory items. It can also reserve stock atomically by subtracting
+a requested quantity from an item's on-hand quantity.
 
 The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
 name, non-negative on-hand quantity, and creation/update timestamps for each
-item. Update, delete, reservation, and quantity-adjustment behavior is not
-implemented yet.
+item. Update, delete, restocking, reservation history, and Order Service
+behavior are not implemented yet.
 
 Docker Compose runs the single PostgreSQL dependency locally with a persistent
 named volume; it does not containerize the Inventory Service.
@@ -143,6 +144,90 @@ Posting a SKU that already exists returns HTTP `409` with:
 }
 ```
 
+## Reserve stock
+
+Stock reservation means atomically claiming some of an item's current on-hand
+quantity so later requests cannot claim the same units. Reserve three units:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items/LAPTOP-001/reserve \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":3}'
+```
+
+`POST /items/{sku}/reserve` returns HTTP `200` with only the reserved SKU, the
+quantity reserved, and the quantity remaining:
+
+```json
+{
+  "sku": "LAPTOP-001",
+  "reserved_quantity": 3,
+  "remaining_quantity": 7
+}
+```
+
+The requested quantity must be an integer greater than zero. Zero, negative
+numbers, and booleans return HTTP `422`; they cannot represent a meaningful
+claim of stock. For example, this request is invalid:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items/LAPTOP-001/reserve \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":0}'
+```
+
+A reservation for a missing SKU returns HTTP `404`:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items/MISSING/reserve \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":1}'
+```
+
+A request exceeding the available quantity returns HTTP `409` with
+`{"detail":"Insufficient inventory available."}`:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items/LAPTOP-001/reserve \
+  -H 'Content-Type: application/json' \
+  -d '{"quantity":1000000}'
+```
+
+### Why reservation uses a row lock
+
+The repository runs reservation in one database transaction and retrieves the
+matching PostgreSQL row with `SELECT ... FOR UPDATE`. PostgreSQL holds that row
+lock until the transaction commits or rolls back. If two requests target the
+same final unit, the second request waits for the first transaction, then reads
+the committed remaining quantity and is rejected. The availability check and
+subtraction therefore cannot both succeed against the same starting value.
+
+For a basic two-request demonstration, first create an item with one unit:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/items \
+  -H 'Content-Type: application/json' \
+  -d '{"sku":"CONCURRENCY-001","name":"Concurrency Demo","quantity":1}'
+```
+
+Then launch two reservations together from a shell:
+
+```bash
+curl -sS -o /tmp/rootlens-reservation-a.json -w 'A: %{http_code}\n' \
+  -X POST http://127.0.0.1:8000/items/CONCURRENCY-001/reserve \
+  -H 'Content-Type: application/json' -d '{"quantity":1}' &
+curl -sS -o /tmp/rootlens-reservation-b.json -w 'B: %{http_code}\n' \
+  -X POST http://127.0.0.1:8000/items/CONCURRENCY-001/reserve \
+  -H 'Content-Type: application/json' -d '{"quantity":1}' &
+wait
+cat /tmp/rootlens-reservation-a.json
+cat /tmp/rootlens-reservation-b.json
+```
+
+One request returns `200` and the other returns `409`; the item ends with zero
+units. This changes only the item's current quantity. There is no reservation
+history table and no Order Service yet.
+
 Interactive API documentation is available at <http://127.0.0.1:8000/docs>,
 with alternative documentation at <http://127.0.0.1:8000/redoc>.
 
@@ -160,7 +245,8 @@ curl -i -H 'X-Request-ID: local-check-123' http://127.0.0.1:8000/items
 Inventory Service application and request logs are emitted as JSON objects, one
 per line. Uvicorn startup and access logs may remain plain text for now.
 Readiness failures log only a generic event and never log the connection URL or
-raw database exception.
+raw database exception. Reservation outcome logs include the request ID, SKU,
+requested quantity, and either the remaining quantity or a rejection reason.
 
 ## Stop PostgreSQL
 

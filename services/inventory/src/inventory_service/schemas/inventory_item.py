@@ -35,3 +35,17 @@ class InventoryItemRead(BaseModel):
     quantity: int
     created_at: datetime
     updated_at: datetime
+
+
+class InventoryReservationRequest(BaseModel):
+    """Quantity requested for one inventory reservation."""
+
+    quantity: int = Field(gt=0, strict=True)
+
+
+class InventoryReservationResponse(BaseModel):
+    """Result of a successful inventory reservation."""
+
+    sku: str
+    reserved_quantity: int
+    remaining_quantity: int

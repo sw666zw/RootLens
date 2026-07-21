@@ -9,12 +9,16 @@ from typing import TextIO
 SERVICE_NAME = "inventory"
 LOGGER_NAME = "inventory_service"
 _HANDLER_MARKER = "_inventory_json_handler"
-_REQUEST_FIELDS = (
+_STRUCTURED_FIELDS = (
     "request_id",
     "method",
     "path",
     "status_code",
     "duration_ms",
+    "sku",
+    "requested_quantity",
+    "remaining_quantity",
+    "reason",
 )
 
 
@@ -32,7 +36,7 @@ class JsonFormatter(logging.Formatter):
             "service": getattr(record, "service", SERVICE_NAME),
         }
 
-        for field in _REQUEST_FIELDS:
+        for field in _STRUCTURED_FIELDS:
             if hasattr(record, field):
                 payload[field] = getattr(record, field)
 
