@@ -15,9 +15,9 @@ RootLens is expected to include telemetry ingestion for logs, metrics, and trace
 5. Provide an investigation experience for reviewing incidents, correlated signals, and likely causes.
 
 Milestone 1 is underway with Inventory Service health endpoints, request IDs,
-structured request logging, a local PostgreSQL foundation, and the first
-persistent inventory-item create/read API. Concurrency-safe stock reservation is
-also implemented with a PostgreSQL row lock to prevent overselling. Update,
-delete, restocking, reservation history, and an Order Service remain planned.
-Broader observability capabilities such as metrics and tracing are also not
-implemented yet.
+structured request logging, Prometheus-compatible application metrics, a local
+PostgreSQL foundation, and the first persistent inventory-item create/read API.
+Concurrency-safe stock reservation is also implemented with a PostgreSQL row
+lock to prevent overselling. A Prometheus server is not scraping these metrics
+yet, and tracing is not implemented. Update, delete, restocking, reservation
+history, and an Order Service remain planned.
