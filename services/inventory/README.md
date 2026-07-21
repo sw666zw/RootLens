@@ -4,7 +4,8 @@ The Inventory Service provides a small system that RootLens can eventually
 observe and diagnose. It includes liveness and database-readiness endpoints,
 request IDs, structured request logging, and basic create/read operations for
 persistent inventory items. It can also reserve stock atomically by subtracting
-a requested quantity from an item's on-hand quantity.
+a requested quantity from an item's on-hand quantity. Prometheus-compatible
+application metrics describe its HTTP traffic and reservation outcomes.
 
 The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
 name, non-negative on-hand quantity, and creation/update timestamps for each
@@ -230,6 +231,78 @@ history table and no Order Service yet.
 
 Interactive API documentation is available at <http://127.0.0.1:8000/docs>,
 with alternative documentation at <http://127.0.0.1:8000/redoc>.
+
+## Application metrics
+
+Application metrics are numeric summaries of behavior over time. Logs preserve
+detailed records of individual events, including request IDs and SKUs, while
+metrics make rates, totals, error patterns, and latency distributions efficient
+to aggregate. Both are useful: a metric can reveal that reservations are being
+rejected more often, and a structured log can identify the request involved.
+
+A Prometheus **Counter** is a total that only increases, such as the number of
+completed requests. A **Histogram** counts observations in configured ranges
+and also exposes their count and sum, making it possible to analyze a latency
+distribution without storing every request duration. The HTTP duration
+histogram uses explicit buckets from 5 milliseconds through 5 seconds. This
+small set of boundaries covers quick local calls and slower database-backed
+requests without creating unnecessary time series.
+
+`GET /metrics` returns Prometheus exposition text from the current application
+process. It does not contact PostgreSQL. The Inventory Service exposes:
+
+- `rootlens_inventory_http_requests_total`, a Counter labeled by `method`,
+  normalized `route`, and `status_code` for completed HTTP requests.
+
+- `rootlens_inventory_http_request_duration_seconds`, a Histogram labeled by
+  `method` and normalized `route` for completed request duration.
+
+- `rootlens_inventory_http_errors_total`, a Counter labeled by `method`,
+  normalized `route`, and `status_code` for completed responses with status
+  `400` or greater.
+
+- `rootlens_inventory_reservations_total`, a Counter labeled by the bounded
+  reservation `outcome` and `reason`: success/none, rejected/item_not_found,
+  rejected/insufficient_inventory, or error/database_error.
+
+Metric-label cardinality means the number of distinct label combinations a
+metric can produce. High cardinality consumes memory and makes queries harder.
+For that reason, requests for `LAPTOP-001` and `PHONE-002` both use the route
+label `/items/{sku}`; raw SKU values, request IDs, timestamps, quantities, and
+exception text are never metric labels. Unmatched URLs use the single route
+label `unmatched`. Detailed request-specific values remain available in logs.
+
+After starting the service with the `uvicorn` command above, inspect all metrics:
+
+```bash
+curl -i http://127.0.0.1:8000/metrics
+```
+
+Generate representative health, item, error, and reservation traffic:
+
+```bash
+curl -sS http://127.0.0.1:8000/health
+curl -sS http://127.0.0.1:8000/items
+curl -sS http://127.0.0.1:8000/items/LAPTOP-001
+curl -sS http://127.0.0.1:8000/does-not-exist
+curl -sS -X POST http://127.0.0.1:8000/items/LAPTOP-001/reserve \
+  -H 'Content-Type: application/json' -d '{"quantity":1}'
+curl -sS -X POST http://127.0.0.1:8000/items/MISSING/reserve \
+  -H 'Content-Type: application/json' -d '{"quantity":1}'
+```
+
+The item and reservation requests require PostgreSQL, an applied migration, and
+appropriate item data. Health, unmatched-error, and metrics requests do not.
+Show only RootLens metrics:
+
+```bash
+curl -sS http://127.0.0.1:8000/metrics | grep '^rootlens_'
+```
+
+The metrics request itself is excluded from HTTP request metrics. This milestone
+only exposes Prometheus-compatible metrics: no Prometheus server is scraping the
+service yet, and no Grafana dashboard, alert, distributed trace, or trace
+collector exists.
 
 ## Request IDs and application logs
 

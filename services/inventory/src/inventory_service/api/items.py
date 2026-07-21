@@ -3,12 +3,13 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from inventory_service.database import get_database_session
 from inventory_service.logging_config import LOGGER_NAME, SERVICE_NAME
+from inventory_service.metrics import InventoryMetrics
 from inventory_service.repositories import inventory_items
 from inventory_service.request_context import get_request_id
 from inventory_service.schemas import (
@@ -75,11 +76,13 @@ async def get_item(
     status_code=status.HTTP_200_OK,
 )
 async def reserve_item(
+    request: Request,
     sku: str,
     reservation: InventoryReservationRequest,
     session: Annotated[AsyncSession, Depends(get_database_session)],
 ) -> InventoryReservationResponse:
     """Atomically subtract a positive quantity from one inventory item."""
+    metrics: InventoryMetrics = request.app.state.metrics
     log_fields = {
         "service": SERVICE_NAME,
         "request_id": get_request_id(),
@@ -93,6 +96,7 @@ async def reserve_item(
             reservation.quantity,
         )
     except inventory_items.InventoryItemNotFoundError as error:
+        metrics.reservations.labels("rejected", "item_not_found").inc()
         logger.warning(
             "inventory_reservation_rejected",
             extra={**log_fields, "reason": "item_not_found"},
@@ -102,6 +106,7 @@ async def reserve_item(
             detail="Inventory item not found.",
         ) from error
     except inventory_items.InsufficientInventoryError as error:
+        metrics.reservations.labels("rejected", "insufficient_inventory").inc()
         logger.warning(
             "inventory_reservation_rejected",
             extra={**log_fields, "reason": "insufficient_inventory"},
@@ -111,12 +116,14 @@ async def reserve_item(
             detail="Insufficient inventory available.",
         ) from error
     except inventory_items.InventoryReservationDatabaseError as error:
+        metrics.reservations.labels("error", "database_error").inc()
         logger.error("inventory_reservation_failed", extra=log_fields)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unable to reserve inventory.",
         ) from error
 
+    metrics.reservations.labels("success", "none").inc()
     logger.info(
         "inventory_reservation_succeeded",
         extra={**log_fields, "remaining_quantity": result.remaining_quantity},
