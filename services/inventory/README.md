@@ -12,8 +12,9 @@ name, non-negative on-hand quantity, and creation/update timestamps for each
 item. Update, delete, restocking, reservation history, and Order Service
 behavior are not implemented yet.
 
-Docker Compose runs the single PostgreSQL dependency locally with a persistent
-named volume; it does not containerize the Inventory Service.
+Docker Compose runs PostgreSQL plus the local Prometheus and Grafana monitoring
+services with persistent named volumes; it does not containerize the Inventory
+Service.
 
 ## Database migrations
 
@@ -102,8 +103,13 @@ python -m pytest services/inventory
 Run the Inventory Service and load `DATABASE_URL` from the root `.env`:
 
 ```bash
-uvicorn --app-dir services/inventory/src inventory_service.main:app --reload --env-file .env
+uvicorn --app-dir services/inventory/src inventory_service.main:app \
+  --reload --host 0.0.0.0 --port 8000 --env-file .env
 ```
+
+The `0.0.0.0` bind lets Prometheus running in Docker reach the service through
+`host.docker.internal:8000`. For local monitoring setup and verification, see
+the repository's `observability/README.md`.
 
 In another terminal, test liveness and readiness:
 
@@ -299,10 +305,10 @@ Show only RootLens metrics:
 curl -sS http://127.0.0.1:8000/metrics | grep '^rootlens_'
 ```
 
-The metrics request itself is excluded from HTTP request metrics. This milestone
-only exposes Prometheus-compatible metrics: no Prometheus server is scraping the
-service yet, and no Grafana dashboard, alert, distributed trace, or trace
-collector exists.
+The metrics request itself is excluded from HTTP request metrics. The local
+Prometheus service scrapes this endpoint every five seconds, and Grafana loads a
+tracked Inventory overview dashboard. No alerts, distributed traces, trace
+collector, or log aggregation are configured.
 
 ## Request IDs and application logs
 
@@ -321,20 +327,21 @@ Readiness failures log only a generic event and never log the connection URL or
 raw database exception. Reservation outcome logs include the request ID, SKU,
 requested quantity, and either the remaining quantity or a rejection reason.
 
-## Stop PostgreSQL
+## Stop the local Compose stack
 
-Stop and remove the container and Compose network while preserving local data:
+Stop and remove the containers and Compose network while preserving local data:
 
 ```bash
 docker compose down
 ```
 
-To also delete the named PostgreSQL volume, use:
+To also delete all named local-data volumes, use:
 
 ```bash
 docker compose down -v
 ```
 
-**Warning:** `docker compose down -v` permanently deletes the local PostgreSQL
-volume and all data stored in it. The normal `docker compose down` command keeps
-that volume so data survives the next container start.
+**Warning:** `docker compose down -v` permanently deletes the local PostgreSQL,
+Prometheus, and Grafana volumes and all data stored in them. The normal
+`docker compose down` command keeps those volumes so data survives the next
+container start.
