@@ -4,6 +4,8 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +20,7 @@ from inventory_service.schemas import (
     InventoryReservationRequest,
     InventoryReservationResponse,
 )
+from inventory_service.tracing import set_current_span_attributes
 
 router = APIRouter(prefix="/items", tags=["items"])
 logger = logging.getLogger(f"{LOGGER_NAME}.reservation")
@@ -89,6 +92,12 @@ async def reserve_item(
         "sku": sku,
         "requested_quantity": reservation.quantity,
     }
+    trace_fields: dict[str, object] = {
+        "rootlens.inventory.operation": "reserve",
+        "rootlens.inventory.sku": sku,
+        "rootlens.inventory.requested_quantity": reservation.quantity,
+    }
+    set_current_span_attributes(trace_fields)
     try:
         result = await inventory_items.reserve_inventory_item(
             session,
@@ -96,6 +105,7 @@ async def reserve_item(
             reservation.quantity,
         )
     except inventory_items.InventoryItemNotFoundError as error:
+        set_current_span_attributes({"rootlens.inventory.outcome": "item_not_found"})
         metrics.reservations.labels("rejected", "item_not_found").inc()
         logger.warning(
             "inventory_reservation_rejected",
@@ -106,6 +116,9 @@ async def reserve_item(
             detail="Inventory item not found.",
         ) from error
     except inventory_items.InsufficientInventoryError as error:
+        set_current_span_attributes(
+            {"rootlens.inventory.outcome": "insufficient_inventory"}
+        )
         metrics.reservations.labels("rejected", "insufficient_inventory").inc()
         logger.warning(
             "inventory_reservation_rejected",
@@ -116,6 +129,14 @@ async def reserve_item(
             detail="Insufficient inventory available.",
         ) from error
     except inventory_items.InventoryReservationDatabaseError as error:
+        set_current_span_attributes({"rootlens.inventory.outcome": "database_error"})
+        span = trace.get_current_span()
+        if span.is_recording():
+            safe_error = inventory_items.InventoryReservationDatabaseError(
+                "Inventory reservation database error"
+            )
+            span.record_exception(safe_error)
+            span.set_status(Status(StatusCode.ERROR))
         metrics.reservations.labels("error", "database_error").inc()
         logger.error("inventory_reservation_failed", extra=log_fields)
         raise HTTPException(
@@ -123,6 +144,7 @@ async def reserve_item(
             detail="Unable to reserve inventory.",
         ) from error
 
+    set_current_span_attributes({"rootlens.inventory.outcome": "success"})
     metrics.reservations.labels("success", "none").inc()
     logger.info(
         "inventory_reservation_succeeded",

@@ -10,8 +10,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from inventory_service.logging_config import LOGGER_NAME, SERVICE_NAME
 from inventory_service.request_context import reset_request_id, set_request_id
+from inventory_service.tracing import current_trace_ids, set_current_span_attributes
 
 REQUEST_ID_HEADER = "X-Request-ID"
+TRACE_ID_HEADER = "X-Trace-ID"
 
 
 class RequestLoggingMiddleware:
@@ -38,6 +40,7 @@ class RequestLoggingMiddleware:
         )
         request.state.request_id = request_id
         context_token = set_request_id(request_id)
+        set_current_span_attributes({"rootlens.request_id": request_id})
         started_at = time.perf_counter()
 
         request_fields: dict[str, object] = {
@@ -52,7 +55,11 @@ class RequestLoggingMiddleware:
             nonlocal status_code
             if message["type"] == "http.response.start":
                 status_code = message["status"]
-                MutableHeaders(scope=message)[REQUEST_ID_HEADER] = request_id
+                headers = MutableHeaders(scope=message)
+                headers[REQUEST_ID_HEADER] = request_id
+                trace_ids = current_trace_ids()
+                if trace_ids is not None:
+                    headers[TRACE_ID_HEADER] = trace_ids[0]
             await send(message)
 
         try:

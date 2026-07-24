@@ -5,3 +5,4 @@ import os
 os.environ["DATABASE_URL"] = (
     "postgresql+asyncpg://rootlens:test_password@localhost:5432/rootlens_inventory_test"
 )
+os.environ["OTEL_TRACES_ENABLED"] = "false"
