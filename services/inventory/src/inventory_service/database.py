@@ -39,11 +39,6 @@ def create_database_resources(database_url: str | None = None) -> DatabaseResour
     return DatabaseResources(engine=engine, session_factory=session_factory)
 
 
-database_resources = create_database_resources()
-engine = database_resources.engine
-async_session_factory = database_resources.session_factory
-
-
 async def get_database_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Yield one database session and close it after the request finishes."""
     resources: DatabaseResources = request.app.state.database_resources

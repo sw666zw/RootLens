@@ -1,13 +1,14 @@
 # RootLens local monitoring
 
 This directory contains the tracked configuration for the Milestone 1 local
-metrics stack. Prometheus scrapes and stores time-series metrics. Grafana uses
-Prometheus as its provisioned default data source and loads the tracked
-**RootLens Inventory Overview** dashboard.
+metrics and tracing stack. Prometheus scrapes and stores time-series metrics.
+Grafana uses Prometheus as its provisioned default data source and loads the
+tracked **RootLens Inventory Overview** dashboard. The OpenTelemetry Collector
+receives application traces and forwards them to Jaeger for inspection.
 
 The Inventory Service continues to run directly on the developer's Mac.
-PostgreSQL, Prometheus, and Grafana run in Docker on the shared `rootlens`
-Compose network. PostgreSQL is not scraped directly.
+PostgreSQL, Prometheus, Grafana, the Collector, and Jaeger run in Docker on the
+shared `rootlens` Compose network. PostgreSQL is not scraped directly.
 
 ## Data flow
 
@@ -29,6 +30,28 @@ Grafana queries Prometheus over the Compose network at
 read-only, UI saves are disabled, and UI deletion does not remove the tracked
 source.
 
+Tracing follows a separate path:
+
+```text
+Inventory Service on the Mac
+  -> OTLP/gRPC localhost:4317
+  -> OpenTelemetry Collector in Docker
+  -> OTLP/gRPC jaeger:4317
+  -> Jaeger UI localhost:16686
+```
+
+A **trace** represents the end-to-end work for one request. A **span** represents
+one timed operation inside that trace, such as the FastAPI request or a
+SQLAlchemy database call. OpenTelemetry is the vendor-neutral instrumentation
+API and SDK used by the application. The Collector provides a stable receiver,
+batching point, and backend-routing boundary, so the application does not need
+Jaeger-specific code and can change trace backends without being
+reinstrumented. Jaeger stores and visualizes traces.
+
+Jaeger uses in-memory storage here. Traces disappear whenever its container is
+restarted or recreated. The Collector is configured for traces only; metrics
+continue to use `prometheus-client`, and logs remain local application output.
+
 ## Configure the local environment
 
 From the repository root, create the ignored local environment file:
@@ -37,24 +60,26 @@ From the repository root, create the ignored local environment file:
 cp .env.example .env
 ```
 
-The example defines `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`. Its
-values, and the matching Compose fallback values, are for local development
-only. They are not production credentials. Use independently managed secrets
-and a stronger authentication configuration outside local development. Do not
-commit `.env`.
+The example also enables traces, names the service `rootlens-inventory`, and
+points it at `http://localhost:4317`. If a private `.env` already exists, copy
+the five `OTEL_*` entries from `.env.example` into it. The Grafana values and
+matching Compose fallbacks are local-development credentials, not production
+secrets. Do not commit `.env`.
 
-## Start PostgreSQL, Prometheus, and Grafana
+## Start the complete Docker stack
 
 Start the complete Compose stack without deleting or recreating its named
 volumes:
 
 ```bash
-docker compose up -d postgres prometheus grafana
+docker compose up -d
 docker compose ps
 ```
 
 Compose exposes PostgreSQL at `127.0.0.1:5432`, Prometheus at
-`127.0.0.1:9090`, and Grafana at `127.0.0.1:3000` by default.
+`127.0.0.1:9090`, Grafana at `127.0.0.1:3000`, the Collector's OTLP gRPC and
+HTTP receivers at `127.0.0.1:4317` and `127.0.0.1:4318`, its health endpoint at
+`127.0.0.1:13133`, and Jaeger at `127.0.0.1:16686`.
 
 ## Start the Inventory Service
 
@@ -123,6 +148,29 @@ curl -sS -X POST http://127.0.0.1:8000/items/MISSING/reserve \
   -H 'Content-Type: application/json' -d '{"quantity":1}'
 ```
 
+Each traced response includes `X-Trace-ID`. Copy that 32-character value into
+Jaeger's **Trace ID** search field, or select `rootlens-inventory` and search by
+service. `X-Trace-ID` is a RootLens local-debugging convenience, not a
+replacement for the standard W3C `traceparent` propagation header.
+
+Test incoming W3C context with a known trace ID:
+
+```bash
+curl -i http://127.0.0.1:8000/health \
+  -H 'traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'
+```
+
+The returned `X-Trace-ID` should be
+`0af7651916cd43dd8448eb211c80319c`. Structured request and reservation logs
+carry the same `trace_id` plus the active `span_id`; their existing
+`request_id` remains present.
+
+`/metrics` is excluded from tracing because Prometheus scrapes it every five
+seconds and those repetitive spans would obscure useful application traffic.
+SKU is safe as a request-specific trace attribute, but it remains forbidden as
+a Prometheus label because unbounded SKU values would create high-cardinality
+time series.
+
 Repeat those requests for a minute if you want clearer rate and latency lines.
 Prometheus scrapes every five seconds, and the dashboard refreshes every five
 seconds.
@@ -138,8 +186,27 @@ reservation outcomes by bounded outcome and reason.
 
 The dashboard intentionally does not use SKU, request ID, timestamp, or other
 high-cardinality labels. Logs and traces are not collected into this dashboard.
-There is no alerting, tracing, incident diagnosis, or log aggregation in this
+There is no alerting, log aggregation, or automated incident diagnosis in this
 stack.
+
+## Verify the Collector and Jaeger
+
+Check the Collector health endpoint and Jaeger UI:
+
+```bash
+curl -fsS http://127.0.0.1:13133/
+curl -fsS http://127.0.0.1:16686/ >/dev/null
+docker compose logs otel-collector jaeger
+```
+
+After generating an item or reservation request, find the
+`rootlens-inventory` service in Jaeger. Database-backed requests should show
+SQLAlchemy client spans beneath the normalized FastAPI server span. Compare the
+trace ID with `X-Trace-ID` and the JSON log's `trace_id`.
+
+RootLens still has only one business service, so this milestone demonstrates
+incoming W3C context but not true service-to-service propagation. Log
+aggregation and automated diagnosis are also not implemented.
 
 ## Stop or reset the stack
 
@@ -170,6 +237,8 @@ Run these checks from the repository root:
 docker compose config
 docker compose run --rm --no-deps --entrypoint promtool prometheus \
   check config /etc/prometheus/prometheus.yml
+docker compose run --rm --no-deps otel-collector validate \
+  --config=/etc/otelcol-contrib/collector.yml
 python3.12 -c 'import json; json.load(open("observability/grafana/dashboards/inventory-overview.json"))'
 python3.12 -c 'import pathlib, yaml; [yaml.safe_load(path.read_text()) for path in pathlib.Path("observability").rglob("*.yml")]'
 git check-ignore -v .env

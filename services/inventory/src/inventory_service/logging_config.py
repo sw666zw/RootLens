@@ -6,6 +6,8 @@ import sys
 from datetime import UTC, datetime
 from typing import TextIO
 
+from inventory_service.tracing import current_trace_ids
+
 SERVICE_NAME = "inventory"
 LOGGER_NAME = "inventory_service"
 _HANDLER_MARKER = "_inventory_json_handler"
@@ -39,6 +41,10 @@ class JsonFormatter(logging.Formatter):
         for field in _STRUCTURED_FIELDS:
             if hasattr(record, field):
                 payload[field] = getattr(record, field)
+
+        trace_ids = current_trace_ids()
+        if trace_ids is not None:
+            payload["trace_id"], payload["span_id"] = trace_ids
 
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)

@@ -20,17 +20,20 @@ PostgreSQL foundation, and the first persistent inventory-item create/read API.
 Concurrency-safe stock reservation is also implemented with a PostgreSQL row
 lock to prevent overselling. A local Prometheus server now scrapes the service,
 and a provisioned Grafana dashboard visualizes its HTTP and reservation metrics.
-Logs and traces are not collected into this dashboard, and tracing is not
-implemented. Update, delete, restocking, reservation history, and an Order
-Service remain planned.
+OpenTelemetry now traces HTTP requests and SQLAlchemy calls through a local
+OpenTelemetry Collector into Jaeger. Logs and traces are not collected into
+Grafana. Update, delete, restocking, reservation history, and an Order Service
+remain planned.
 
-## Local monitoring quick start
+## Local observability quick start
 
 Prometheus collects and stores the numeric measurements exposed by the
 Inventory Service at `GET /metrics`. Grafana queries Prometheus and displays
 those measurements in the provisioned **RootLens Inventory Overview**
-dashboard. The Inventory Service still runs directly on the developer's Mac;
-only PostgreSQL, Prometheus, and Grafana run in Docker.
+dashboard. OpenTelemetry records request and database spans, the Collector
+receives and forwards them, and Jaeger stores and displays the resulting traces.
+The Inventory Service still runs directly on the developer's Mac; PostgreSQL,
+Prometheus, Grafana, the Collector, and Jaeger run in Docker.
 
 Copy the local-development environment example, start the Compose services,
 apply the Inventory Service migration, and run the service on all host
@@ -38,7 +41,7 @@ interfaces:
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres prometheus grafana
+docker compose up -d
 set -a
 source .env
 set +a
@@ -59,7 +62,9 @@ that `inventory-service` is `UP`. Open Grafana at <http://127.0.0.1:3000>, sign
 in with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`, then open
 **Dashboards > RootLens > RootLens Inventory Overview**. The defaults in
 `.env.example` are convenient local-development credentials and are not safe
-for production.
+for production. Open Jaeger at <http://127.0.0.1:16686> and select
+`rootlens-inventory` after generating traffic. The service exports OTLP/gRPC to
+the Collector on `localhost:4317`; it never exports directly to Jaeger.
 
 See [observability/README.md](observability/README.md) for configuration details,
 sample-traffic commands, verification steps, and safe shutdown guidance. See

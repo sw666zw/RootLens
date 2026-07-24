@@ -6,15 +6,17 @@ request IDs, structured request logging, and basic create/read operations for
 persistent inventory items. It can also reserve stock atomically by subtracting
 a requested quantity from an item's on-hand quantity. Prometheus-compatible
 application metrics describe its HTTP traffic and reservation outcomes.
+OpenTelemetry traces its FastAPI requests and SQLAlchemy operations through a
+local Collector into Jaeger.
 
 The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
 name, non-negative on-hand quantity, and creation/update timestamps for each
 item. Update, delete, restocking, reservation history, and Order Service
 behavior are not implemented yet.
 
-Docker Compose runs PostgreSQL plus the local Prometheus and Grafana monitoring
-services with persistent named volumes; it does not containerize the Inventory
-Service.
+Docker Compose runs PostgreSQL plus the local Prometheus, Grafana,
+OpenTelemetry Collector, and Jaeger services; it does not containerize the
+Inventory Service.
 
 ## Database migrations
 
@@ -42,6 +44,12 @@ If `POSTGRES_PASSWORD` is changed, update the password embedded in
 `DATABASE_URL` to match. The application and Alembic read the connection string
 from the `DATABASE_URL` environment variable. A real `.env` remains ignored by
 Git.
+
+The five `OTEL_*` values enable local traces, set the service name, select the
+Collector's OTLP/gRPC endpoint, enable local insecure transport, and choose the
+sampler. Copy them from `.env.example` into an existing private `.env` if
+needed. Set `OTEL_TRACES_ENABLED=false` to run normally without creating an
+exporter or contacting the Collector.
 
 Create and activate a Python 3.12 virtual environment, then install the service
 and its development dependencies:
@@ -305,10 +313,10 @@ Show only RootLens metrics:
 curl -sS http://127.0.0.1:8000/metrics | grep '^rootlens_'
 ```
 
-The metrics request itself is excluded from HTTP request metrics. The local
-Prometheus service scrapes this endpoint every five seconds, and Grafana loads a
-tracked Inventory overview dashboard. No alerts, distributed traces, trace
-collector, or log aggregation are configured.
+The metrics request itself is excluded from HTTP request metrics and tracing.
+The local Prometheus service scrapes this endpoint every five seconds, and
+Grafana loads a tracked Inventory overview dashboard. No alerts or log
+aggregation are configured.
 
 ## Request IDs and application logs
 
@@ -326,6 +334,57 @@ per line. Uvicorn startup and access logs may remain plain text for now.
 Readiness failures log only a generic event and never log the connection URL or
 raw database exception. Reservation outcome logs include the request ID, SKU,
 requested quantity, and either the remaining quantity or a rejection reason.
+
+## Traces, spans, and correlation
+
+A **trace** is the full causal record of work for a request. A **span** is one
+timed operation within that trace. The FastAPI server span covers the HTTP
+request; SQLAlchemy client spans show database operations beneath it.
+OpenTelemetry supplies the standard instrumentation API and SDK. Its Collector
+receives OTLP from the Mac application, batches it, and forwards it to Jaeger,
+which provides local storage, search, and a trace timeline.
+
+The application exports to the Collector instead of directly to Jaeger so
+instrumentation stays backend-neutral and routing/batching stays outside the
+business service:
+
+```text
+Inventory Service -> localhost:4317 Collector -> jaeger:4317 -> Jaeger UI
+```
+
+A request ID is an application correlation value for one HTTP request. A trace
+ID is the standard 32-hex identifier shared by every span in the trace and can
+cross service boundaries. They coexist in JSON logs and response headers.
+`X-Trace-ID` is a RootLens debugging convenience for finding the current trace
+in Jaeger; standard propagation uses the W3C `traceparent` header.
+
+Start the complete Compose stack, then start the service:
+
+```bash
+docker compose up -d
+uvicorn --app-dir services/inventory/src inventory_service.main:app \
+  --reload --host 0.0.0.0 --port 8000 --env-file .env
+```
+
+Create an item and reserve stock with the earlier curl commands, note the
+returned `X-Trace-ID`, open <http://127.0.0.1:16686>, select
+`rootlens-inventory`, and search for that trace ID. Database-backed requests
+contain SQLAlchemy child spans. Test incoming context explicitly:
+
+```bash
+curl -i http://127.0.0.1:8000/health \
+  -H 'traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01'
+```
+
+The response's `X-Trace-ID` should match the trace ID in that header. The
+`/metrics` route is excluded from tracing to avoid a span every five seconds.
+SKU can be a trace attribute because spans are request-specific; it must not be
+a Prometheus label because unbounded SKUs create high-cardinality time series.
+
+Jaeger uses temporary in-memory storage, so traces disappear when Jaeger is
+restarted or recreated. There is still only one business service, so true
+cross-service propagation is not demonstrated. Log aggregation and automated
+diagnosis are not implemented.
 
 ## Stop the local Compose stack
 

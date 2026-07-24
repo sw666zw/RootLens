@@ -52,6 +52,35 @@ services:
     networks:
       - rootlens
 
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    container_name: rootlens-jaeger
+    ports:
+      - "127.0.0.1:16686:16686"
+    expose:
+      - "4317"
+      - "4318"
+    restart: unless-stopped
+    networks:
+      - rootlens
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.156.0
+    container_name: rootlens-otel-collector
+    command:
+      - --config=/etc/otelcol-contrib/collector.yml
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:13133:13133"
+    volumes:
+      - ./observability/opentelemetry/collector.yml:/etc/otelcol-contrib/collector.yml:ro
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+    networks:
+      - rootlens
+
 volumes:
   postgres_data:
   prometheus_data:
