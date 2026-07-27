@@ -7,14 +7,15 @@ persistent inventory items. It can also reserve stock atomically by subtracting
 a requested quantity from an item's on-hand quantity. Prometheus-compatible
 application metrics describe its HTTP traffic and reservation outcomes.
 OpenTelemetry traces its FastAPI requests and SQLAlchemy operations through a
-local Collector into Jaeger.
+local Collector into Jaeger. Optional file logging writes the same application
+events to a JSON-lines file that Grafana Alloy sends to Loki.
 
 The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
 name, non-negative on-hand quantity, and creation/update timestamps for each
 item. Update, delete, restocking, reservation history, and Order Service
 behavior are not implemented yet.
 
-Docker Compose runs PostgreSQL plus the local Prometheus, Grafana,
+Docker Compose runs PostgreSQL plus the local Prometheus, Loki, Alloy, Grafana,
 OpenTelemetry Collector, and Jaeger services; it does not containerize the
 Inventory Service.
 
@@ -50,6 +51,12 @@ Collector's OTLP/gRPC endpoint, enable local insecure transport, and choose the
 sampler. Copy them from `.env.example` into an existing private `.env` if
 needed. Set `OTEL_TRACES_ENABLED=false` to run normally without creating an
 exporter or contacting the Collector.
+
+The two `ROOTLENS_*` logging values add UTF-8 JSON-lines output at
+`runtime/logs/inventory.jsonl`. Copy them into an existing private `.env` to
+enable centralized local logs. Set `ROOTLENS_FILE_LOGGING_ENABLED=false` to
+keep Terminal logging while disabling the file; disabled file logging does not
+create the directory or file.
 
 Create and activate a Python 3.12 virtual environment, then install the service
 and its development dependencies:
@@ -315,8 +322,7 @@ curl -sS http://127.0.0.1:8000/metrics | grep '^rootlens_'
 
 The metrics request itself is excluded from HTTP request metrics and tracing.
 The local Prometheus service scrapes this endpoint every five seconds, and
-Grafana loads a tracked Inventory overview dashboard. No alerts or log
-aggregation are configured.
+Grafana loads a tracked Inventory overview dashboard. No alerts are configured.
 
 ## Request IDs and application logs
 
@@ -334,6 +340,31 @@ per line. Uvicorn startup and access logs may remain plain text for now.
 Readiness failures log only a generic event and never log the connection URL or
 raw database exception. Reservation outcome logs include the request ID, SKU,
 requested quantity, and either the remaining quantity or a rejection reason.
+
+With `ROOTLENS_FILE_LOGGING_ENABLED=true`, each application event is also
+written promptly to `ROOTLENS_LOG_FILE_PATH` using the same formatter and
+fields as the Terminal. The output is additional and intentionally excludes
+Uvicorn's own logs. One complete JSON object per line lets Alloy safely tail
+the file and lets Loki retain the original event for `| json` queries.
+
+Loki labels only `service`, `environment`, `level`, and `job`. Request IDs,
+trace IDs, span IDs, SKUs, paths, quantities, timestamps, messages, and
+exception text remain searchable JSON fields instead of index labels. This
+avoids high-cardinality index growth while preserving request-level detail.
+Open Grafana Explore, select **Loki**, and query:
+
+```logql
+{service="inventory"} | json
+{service="inventory"} | json | request_id="replace-with-request-id"
+{service="inventory"} | json | trace_id="replace-with-32-character-trace-id"
+```
+
+Grafana Alloy is the current collector used to tail the host file; RootLens
+does not use the legacy Promtail agent. The provisioned log dashboard is
+**RootLens Inventory Logs**, Alloy's local debugging UI is
+<http://127.0.0.1:12345>, and Loki readiness is
+<http://127.0.0.1:3100/ready>. A recognized `trace_id` in a log offers a
+**View trace in Jaeger** link.
 
 ## Traces, spans, and correlation
 
@@ -383,8 +414,9 @@ a Prometheus label because unbounded SKUs create high-cardinality time series.
 
 Jaeger uses temporary in-memory storage, so traces disappear when Jaeger is
 restarted or recreated. There is still only one business service, so true
-cross-service propagation is not demonstrated. Log aggregation and automated
-diagnosis are not implemented.
+cross-service propagation is not demonstrated. Loki's unauthenticated,
+single-process filesystem configuration is for local development only.
+Automated diagnosis is not implemented.
 
 ## Stop the local Compose stack
 

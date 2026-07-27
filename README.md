@@ -21,9 +21,11 @@ Concurrency-safe stock reservation is also implemented with a PostgreSQL row
 lock to prevent overselling. A local Prometheus server now scrapes the service,
 and a provisioned Grafana dashboard visualizes its HTTP and reservation metrics.
 OpenTelemetry now traces HTTP requests and SQLAlchemy calls through a local
-OpenTelemetry Collector into Jaeger. Logs and traces are not collected into
-Grafana. Update, delete, restocking, reservation history, and an Order Service
-remain planned.
+OpenTelemetry Collector into Jaeger. Grafana Alloy tails the service's
+additional JSON-lines log file and sends those logs to Loki, while Grafana
+provides a provisioned log dashboard and trace links into Jaeger. Update,
+delete, restocking, reservation history, automated diagnosis, and an Order
+Service remain planned.
 
 ## Local observability quick start
 
@@ -32,8 +34,13 @@ Inventory Service at `GET /metrics`. Grafana queries Prometheus and displays
 those measurements in the provisioned **RootLens Inventory Overview**
 dashboard. OpenTelemetry records request and database spans, the Collector
 receives and forwards them, and Jaeger stores and displays the resulting traces.
-The Inventory Service still runs directly on the developer's Mac; PostgreSQL,
-Prometheus, Grafana, the Collector, and Jaeger run in Docker.
+Centralized logging makes application events queryable instead of leaving them
+only in Terminal scrollback. The service writes the same structured JSON to the
+Terminal and to `runtime/logs/inventory.jsonl`; Alloy tails that file, Loki
+stores it, and Grafana loads the provisioned **RootLens Inventory Logs**
+dashboard. The Inventory Service still runs directly on the developer's Mac;
+PostgreSQL, Prometheus, Loki, Alloy, Grafana, the Collector, and Jaeger run in
+Docker.
 
 Copy the local-development environment example, start the Compose services,
 apply the Inventory Service migration, and run the service on all host
@@ -65,6 +72,10 @@ in with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`, then open
 for production. Open Jaeger at <http://127.0.0.1:16686> and select
 `rootlens-inventory` after generating traffic. The service exports OTLP/gRPC to
 the Collector on `localhost:4317`; it never exports directly to Jaeger.
+Open Grafana Explore, select **Loki**, and run
+`{service="inventory"} | json` to inspect parsed application log fields.
+Alloy's debugging UI is at <http://127.0.0.1:12345>, and Loki readiness is
+available at <http://127.0.0.1:3100/ready>.
 
 See [observability/README.md](observability/README.md) for configuration details,
 sample-traffic commands, verification steps, and safe shutdown guidance. See
