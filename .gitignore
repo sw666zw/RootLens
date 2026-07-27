@@ -32,6 +32,9 @@ ENV/
 # Generated logs
 *.log
 logs/
+!runtime/logs/
+runtime/logs/*
+!runtime/logs/.gitkeep
 
 # macOS
 .DS_Store

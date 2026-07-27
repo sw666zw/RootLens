@@ -34,6 +34,40 @@ services:
     networks:
       - rootlens
 
+  loki:
+    image: grafana/loki:3.7.0
+    container_name: rootlens-loki
+    command:
+      - -config.file=/etc/loki/loki.yml
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    restart: unless-stopped
+    networks:
+      - rootlens
+
+  alloy:
+    image: grafana/alloy:v1.18.0
+    container_name: rootlens-alloy
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    ports:
+      - "127.0.0.1:12345:12345"
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ./runtime/logs:/var/log/rootlens:ro
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - loki
+    restart: unless-stopped
+    networks:
+      - rootlens
+
   grafana:
     image: grafana/grafana:12.4.3
     container_name: rootlens-grafana
@@ -48,6 +82,8 @@ services:
       - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - loki
+      - jaeger
     restart: unless-stopped
     networks:
       - rootlens
@@ -85,6 +121,8 @@ volumes:
   postgres_data:
   prometheus_data:
   grafana_data:
+  loki_data:
+  alloy_data:
 
 networks:
   rootlens:
