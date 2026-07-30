@@ -1,0 +1,109 @@
+{
+  "annotations": {"list": []},
+  "description": "Local Prometheus overview of the RootLens Inventory and Order services.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "Whether Prometheus can scrape Inventory. 1 is up; 0 is down.",
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "Down"}, "1": {"color": "green", "text": "Up"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"editorMode": "code", "expr": "up{job=\"inventory-service\"}", "instant": true, "legendFormat": "Inventory", "range": false, "refId": "A"}],
+      "title": "Inventory Target Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "Whether Prometheus can scrape Order. 1 is up; 0 is down.",
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "Down"}, "1": {"color": "green", "text": "Up"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"editorMode": "code", "expr": "up{job=\"order-service\"}", "instant": true, "legendFormat": "Order", "range": false, "refId": "A"}],
+      "title": "Order Target Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "Completed HTTP requests per second, grouped only by service.",
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rate(rootlens_inventory_http_requests_total[$__rate_interval]))", "legendFormat": "inventory", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rate(rootlens_order_http_requests_total[$__rate_interval]))", "legendFormat": "order", "range": true, "refId": "B"}
+      ],
+      "title": "Request Rates by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "HTTP responses with status 400 or greater per second by service.",
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rate(rootlens_inventory_http_errors_total[$__rate_interval]))", "legendFormat": "inventory", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rate(rootlens_order_http_errors_total[$__rate_interval]))", "legendFormat": "order", "range": true, "refId": "B"}
+      ],
+      "title": "Error Rates by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "95th-percentile request duration by service.",
+      "fieldConfig": {"defaults": {"decimals": 3, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(rootlens_inventory_http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "inventory", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(rootlens_order_http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "order", "range": true, "refId": "B"}
+      ],
+      "title": "p95 Latency by Service",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "Order creation attempts grouped by bounded outcome and reason.",
+      "fieldConfig": {"defaults": {"decimals": 0, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 6,
+      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome, reason) (increase(rootlens_order_creations_total[$__range]))", "instant": true, "legendFormat": "{{outcome}} · {{reason}}", "range": false, "refId": "A"}],
+      "title": "Order Creation Outcomes",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "description": "Inventory reservation attempts grouped by bounded outcome and reason.",
+      "fieldConfig": {"defaults": {"decimals": 0, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 7,
+      "options": {"displayMode": "gradient", "orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "showUnfilled": true},
+      "targets": [{"editorMode": "code", "expr": "sum by (outcome, reason) (increase(rootlens_inventory_reservations_total[$__range]))", "instant": true, "legendFormat": "{{outcome}} · {{reason}}", "range": false, "refId": "A"}],
+      "title": "Inventory Reservation Outcomes",
+      "type": "bargauge"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": ["rootlens", "distributed", "prometheus"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "RootLens Distributed Services Overview",
+  "uid": "rootlens-distributed-services",
+  "version": 1,
+  "weekStart": ""
+}

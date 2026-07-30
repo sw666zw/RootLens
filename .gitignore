@@ -35,6 +35,9 @@ logs/
 !runtime/logs/
 runtime/logs/*
 !runtime/logs/.gitkeep
+# Explicit documentation of the two local service log targets.
+runtime/logs/inventory.jsonl
+runtime/logs/order.jsonl
 
 # macOS
 .DS_Store

@@ -12,8 +12,9 @@ events to a JSON-lines file that Grafana Alloy sends to Loki.
 
 The PostgreSQL `inventory_items` table stores a UUID identifier, unique SKU,
 name, non-negative on-hand quantity, and creation/update timestamps for each
-item. Update, delete, restocking, reservation history, and Order Service
-behavior are not implemented yet.
+item. Update, delete, restocking, and reservation history are not implemented.
+Order Service now calls the reservation endpoint but does not change the
+Inventory schema.
 
 Docker Compose runs PostgreSQL plus the local Prometheus, Loki, Alloy, Grafana,
 OpenTelemetry Collector, and Jaeger services; it does not containerize the
@@ -248,7 +249,7 @@ cat /tmp/rootlens-reservation-b.json
 
 One request returns `200` and the other returns `409`; the item ends with zero
 units. This changes only the item's current quantity. There is no reservation
-history table and no Order Service yet.
+history table.
 
 Interactive API documentation is available at <http://127.0.0.1:8000/docs>,
 with alternative documentation at <http://127.0.0.1:8000/redoc>.
@@ -413,10 +414,11 @@ SKU can be a trace attribute because spans are request-specific; it must not be
 a Prometheus label because unbounded SKUs create high-cardinality time series.
 
 Jaeger uses temporary in-memory storage, so traces disappear when Jaeger is
-restarted or recreated. There is still only one business service, so true
-cross-service propagation is not demonstrated. Loki's unauthenticated,
-single-process filesystem configuration is for local development only.
-Automated diagnosis is not implemented.
+restarted or recreated. Order Service now demonstrates cross-service context
+propagation through its instrumented HTTPX client; see
+`services/order/README.md`. Loki's unauthenticated, single-process filesystem
+configuration is for local development only. Automated diagnosis is not
+implemented.
 
 ## Stop the local Compose stack
 
