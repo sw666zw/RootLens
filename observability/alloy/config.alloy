@@ -9,12 +9,55 @@ local.file_match "inventory_logs" {
   sync_period = "5s"
 }
 
+local.file_match "order_logs" {
+  path_targets = [{
+    "__address__" = "localhost",
+    "__path__"    = "/var/log/rootlens/order.jsonl",
+    "environment" = "local",
+    "job"         = "order-service",
+    "service"     = "order",
+  }]
+  sync_period = "5s"
+}
+
 loki.source.file "inventory_logs" {
   targets    = local.file_match.inventory_logs.targets
   forward_to = [loki.process.inventory_logs.receiver]
 }
 
+loki.source.file "order_logs" {
+  targets    = local.file_match.order_logs.targets
+  forward_to = [loki.process.order_logs.receiver]
+}
+
 loki.process "inventory_logs" {
+  stage.json {
+    expressions = {
+      level     = "level",
+      timestamp = "timestamp",
+    }
+  }
+
+  stage.timestamp {
+    source            = "timestamp"
+    format            = "RFC3339Nano"
+    action_on_failure = "fudge"
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.process "order_logs" {
   stage.json {
     expressions = {
       level     = "level",

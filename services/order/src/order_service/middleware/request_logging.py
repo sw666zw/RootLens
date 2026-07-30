@@ -1,0 +1,82 @@
+"""Request ID propagation and completion logging middleware."""
+
+import logging
+import time
+from uuid import uuid4
+
+from starlette.datastructures import MutableHeaders
+from starlette.requests import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from order_service.logging_config import LOGGER_NAME, SERVICE_NAME
+from order_service.request_context import reset_request_id, set_request_id
+from order_service.tracing import current_trace_ids, set_current_span_attributes
+
+REQUEST_ID_HEADER = "X-Request-ID"
+TRACE_ID_HEADER = "X-Trace-ID"
+
+
+class RequestLoggingMiddleware:
+    """Attach a request ID and emit one structured completion log."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self._logger = logging.getLogger(f"{LOGGER_NAME}.request")
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        supplied = request.headers.get(REQUEST_ID_HEADER, "")
+        request_id = supplied if supplied.strip() else str(uuid4())
+        request.state.request_id = request_id
+        token = set_request_id(request_id)
+        set_current_span_attributes({"rootlens.request_id": request_id})
+        started_at = time.perf_counter()
+        fields: dict[str, object] = {
+            "service": SERVICE_NAME,
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+        }
+        status_code: int | None = None
+
+        async def send_with_correlation(message: Message) -> None:
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = MutableHeaders(scope=message)
+                headers[REQUEST_ID_HEADER] = request_id
+                trace_ids = current_trace_ids()
+                if trace_ids is not None:
+                    headers[TRACE_ID_HEADER] = trace_ids[0]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_correlation)
+        except Exception:
+            duration_ms = max(0.0, (time.perf_counter() - started_at) * 1000)
+            self._logger.exception(
+                "request_failed",
+                extra={**fields, "duration_ms": duration_ms},
+            )
+            raise
+        else:
+            duration_ms = max(0.0, (time.perf_counter() - started_at) * 1000)
+            self._logger.info(
+                "request_completed",
+                extra={
+                    **fields,
+                    "status_code": status_code,
+                    "duration_ms": duration_ms,
+                },
+            )
+        finally:
+            reset_request_id(token)

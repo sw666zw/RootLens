@@ -1,15 +1,14 @@
 # RootLens local observability
 
-This directory contains the tracked configuration for the Milestone 1 local
+This directory contains the tracked configuration for the local
 metrics, logs, and tracing stack. Prometheus stores application metrics. Loki
 stores application logs received from Grafana Alloy. Jaeger stores traces
 received through the OpenTelemetry Collector. Grafana provisions all three data
-sources plus the **RootLens Inventory Overview** and
-**RootLens Inventory Logs** dashboards.
+sources plus Inventory-specific and distributed service dashboards.
 
-The Inventory Service runs directly on the Mac. PostgreSQL, Prometheus, Loki,
-Alloy, Grafana, the Collector, and Jaeger run in Docker on the shared
-`rootlens` network.
+The Inventory and Order services run directly on the Mac. PostgreSQL,
+Prometheus, Loki, Alloy, Grafana, the Collector, and Jaeger run in Docker on
+the shared `rootlens` network.
 
 ## Telemetry data flow
 
@@ -19,15 +18,19 @@ Metrics follow this path:
 Inventory Service GET /metrics
   -> Prometheus at host.docker.internal:8000
   -> Grafana Prometheus data source
+Order Service GET /metrics
+  -> Prometheus at host.docker.internal:8001
+  -> Grafana Prometheus data source
 ```
 
-Uvicorn must listen on `0.0.0.0:8000`, because a service bound only to the
-Mac's loopback interface cannot accept a scrape arriving from Docker.
+Uvicorn must listen on `0.0.0.0` for both ports, because a service bound only
+to the Mac's loopback interface cannot accept a scrape arriving from Docker.
 
 Traces follow a separate path:
 
 ```text
-Inventory Service on the Mac
+Client -> Order Service -> Inventory Service -> PostgreSQL
+Order Service and Inventory Service on the Mac
   -> OTLP/gRPC localhost:4317
   -> OpenTelemetry Collector in Docker
   -> OTLP/gRPC jaeger:4317
@@ -44,6 +47,12 @@ Inventory Service on the Mac
   -> Grafana Alloy in Docker
   -> Grafana Loki in Docker
   -> Grafana Explore and RootLens Inventory Logs
+Order Service on the Mac
+  -> Terminal JSON output
+  -> runtime/logs/order.jsonl
+  -> Grafana Alloy in Docker
+  -> Grafana Loki in Docker
+  -> Grafana Explore and RootLens Distributed Service Logs
 ```
 
 File output is additional: it does not replace Terminal output and it does not
@@ -80,6 +89,7 @@ If `.env` already exists, add these values without committing the file:
 ```dotenv
 ROOTLENS_FILE_LOGGING_ENABLED=true
 ROOTLENS_LOG_FILE_PATH=runtime/logs/inventory.jsonl
+ROOTLENS_ORDER_LOG_FILE_PATH=runtime/logs/order.jsonl
 ```
 
 Also copy any missing `OTEL_*` entries from `.env.example`. The example
@@ -106,6 +116,13 @@ uvicorn --app-dir services/inventory/src inventory_service.main:app \
   --reload --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
+Run Order Service in another terminal:
+
+```bash
+uvicorn --app-dir services/order/src order_service.main:app \
+  --reload --host 0.0.0.0 --port 8001 --env-file .env
+```
+
 The application creates `runtime/logs` when file logging is enabled. Generated
 JSONL files are ignored by Git.
 
@@ -124,6 +141,10 @@ curl -sS -X POST http://127.0.0.1:8000/items/LAPTOP-001/reserve \
   -H 'Content-Type: application/json' -d '{"quantity":1000000}'
 curl -sS -X POST http://127.0.0.1:8000/items/MISSING/reserve \
   -H 'Content-Type: application/json' -d '{"quantity":1}'
+curl -i -X POST http://127.0.0.1:8001/orders \
+  -H 'Content-Type: application/json' \
+  -H 'X-Request-ID: distributed-demo-001' \
+  -d '{"sku":"LAPTOP-001","quantity":1}'
 ```
 
 The create may return `409` when the sample SKU already exists; that is useful
@@ -131,6 +152,7 @@ error traffic. Confirm the file receives one JSON object per line:
 
 ```bash
 tail -n 5 runtime/logs/inventory.jsonl
+tail -n 5 runtime/logs/order.jsonl
 ```
 
 ## Query logs and follow traces
@@ -140,12 +162,14 @@ values, and open **Explore**. Select **Loki** and start with:
 
 ```logql
 {service="inventory"} | json
+{service="order"} | json
+{service=~"inventory|order"} | json
 ```
 
 Search for one request ID:
 
 ```logql
-{service="inventory"} | json | request_id="replace-with-request-id"
+{service=~"inventory|order"} | json | request_id="replace-with-request-id"
 ```
 
 Search for one trace ID:
@@ -157,8 +181,8 @@ Search for one trace ID:
 The provisioned Loki data source recognizes lowercase 32-character hexadecimal
 `trace_id` values. Expand a matching log row and use **View trace in Jaeger** to
 open the same trace through the provisioned Jaeger data source. The
-**RootLens Inventory Logs** dashboard provides recent logs, warnings/errors,
-request completions, reservation outcomes, and volume grouped by level.
+**RootLens Distributed Service Logs** dashboard provides both services and a
+request-ID textbox for following one operation across the boundary.
 
 Inspect Alloy's component graph and status at <http://127.0.0.1:12345>. Check
 Loki directly and query recent entries with:
@@ -200,7 +224,8 @@ Run from the repository root:
 
 ```bash
 python -m pytest services/inventory
-python -m ruff check services/inventory
+python -m pytest services/order
+python -m ruff check services/inventory services/order
 docker compose config
 docker compose run --rm --no-deps loki \
   -config.file=/etc/loki/loki.yml -verify-config=true
@@ -210,9 +235,10 @@ docker compose run --rm --no-deps --entrypoint promtool prometheus \
   check config /etc/prometheus/prometheus.yml
 docker compose run --rm --no-deps otel-collector validate \
   --config=/etc/otelcol-contrib/collector.yml
-python3.12 -c 'import json; json.load(open("observability/grafana/dashboards/inventory-logs.json"))'
+python3.12 -c 'import json, pathlib; [json.load(path.open()) for path in pathlib.Path("observability/grafana/dashboards").glob("*.json")]'
 python3.12 -c 'import pathlib, yaml; [yaml.safe_load(path.read_text()) for path in pathlib.Path("observability").rglob("*.yml")]'
 git check-ignore -v runtime/logs/inventory.jsonl
+git check-ignore -v runtime/logs/order.jsonl
 test -f runtime/logs/.gitkeep
 ! git check-ignore runtime/logs/.gitkeep
 ```

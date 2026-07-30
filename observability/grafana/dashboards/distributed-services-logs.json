@@ -1,0 +1,77 @@
+{
+  "annotations": {"list": []},
+  "description": "Correlated JSON logs from the RootLens Order and Inventory services.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Both business services. Expand a JSON line to copy request_id, then use the request-ID panel.",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=~\"inventory|order\"} | json", "queryType": "range", "refId": "A"}],
+      "title": "Order and Inventory Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Order logs only: {service=\"order\"} | json",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 10},
+      "id": 2,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=\"order\"} | json", "queryType": "range", "refId": "A"}],
+      "title": "Order Service Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Inventory logs only: {service=\"inventory\"} | json",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 10},
+      "id": 3,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=\"inventory\"} | json", "queryType": "range", "refId": "A"}],
+      "title": "Inventory Service Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Set the request_id dashboard variable to the X-Request-ID returned by Order. This filters JSON fields without creating a Loki label.",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 19},
+      "id": 4,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=~\"inventory|order\"} | json | request_id=\"$request_id\"", "queryType": "range", "refId": "A"}],
+      "title": "One Request ID Across Both Services",
+      "type": "logs"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 42,
+  "tags": ["rootlens", "distributed", "logs", "local"],
+  "templating": {
+    "list": [
+      {
+        "current": {"selected": true, "text": "replace-with-request-id", "value": "replace-with-request-id"},
+        "description": "Paste an X-Request-ID value; this remains a parsed JSON field, not an indexed label.",
+        "hide": 0,
+        "label": "Request ID",
+        "name": "request_id",
+        "options": [{"selected": true, "text": "replace-with-request-id", "value": "replace-with-request-id"}],
+        "query": "replace-with-request-id",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "RootLens Distributed Service Logs",
+  "uid": "rootlens-distributed-logs",
+  "version": 1,
+  "weekStart": ""
+}
