@@ -28,6 +28,11 @@ _STRUCTURED_FIELDS = (
     "quantity",
     "remaining_inventory",
     "reason",
+    "status",
+    "previous_status",
+    "new_status",
+    "failure_reason",
+    "operation",
 )
 
 

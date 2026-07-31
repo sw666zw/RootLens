@@ -6,9 +6,9 @@ stores application logs received from Grafana Alloy. Jaeger stores traces
 received through the OpenTelemetry Collector. Grafana provisions all three data
 sources plus Inventory-specific and distributed service dashboards.
 
-The Inventory and Order services run directly on the Mac. PostgreSQL,
-Prometheus, Loki, Alloy, Grafana, the Collector, and Jaeger run in Docker on
-the shared `rootlens` network.
+The Inventory and Order services run directly on the Mac. Their two independent
+PostgreSQL containers, Prometheus, Loki, Alloy, Grafana, the Collector, and
+Jaeger run in Docker on the shared `rootlens` network.
 
 ## Telemetry data flow
 
@@ -29,7 +29,8 @@ to the Mac's loopback interface cannot accept a scrape arriving from Docker.
 Traces follow a separate path:
 
 ```text
-Client -> Order Service -> Inventory Service -> PostgreSQL
+Client -> Order Service -> Order PostgreSQL
+                       -> Inventory Service -> Inventory PostgreSQL
 Order Service and Inventory Service on the Mac
   -> OTLP/gRPC localhost:4317
   -> OpenTelemetry Collector in Docker
@@ -87,6 +88,11 @@ cp .env.example .env
 If `.env` already exists, add these values without committing the file:
 
 ```dotenv
+ORDER_POSTGRES_DB=rootlens_orders
+ORDER_POSTGRES_USER=rootlens_order
+ORDER_POSTGRES_PASSWORD=rootlens_order_dev_password
+ORDER_POSTGRES_PORT=5433
+ORDER_DATABASE_URL=postgresql+asyncpg://rootlens_order:rootlens_order_dev_password@localhost:5433/rootlens_orders
 ROOTLENS_FILE_LOGGING_ENABLED=true
 ROOTLENS_LOG_FILE_PATH=runtime/logs/inventory.jsonl
 ROOTLENS_ORDER_LOG_FILE_PATH=runtime/logs/order.jsonl
@@ -104,7 +110,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Load the private environment, apply the existing migration, and run the
+Load the private environment, apply both service-owned migrations, and run the
 Inventory Service in a separate terminal:
 
 ```bash
@@ -112,6 +118,7 @@ set -a
 source .env
 set +a
 alembic -c services/inventory/alembic.ini upgrade head
+alembic -c services/order/alembic.ini upgrade head
 uvicorn --app-dir services/inventory/src inventory_service.main:app \
   --reload --host 0.0.0.0 --port 8000 --env-file .env
 ```
@@ -170,12 +177,15 @@ Search for one request ID:
 
 ```logql
 {service=~"inventory|order"} | json | request_id="replace-with-request-id"
+{service="order"} | json | order_id="replace-with-order-id"
+{service="order"} | json | status="failed"
+{service="order"} | json | failure_reason="inventory_unavailable"
 ```
 
 Search for one trace ID:
 
 ```logql
-{service="inventory"} | json | trace_id="replace-with-32-character-trace-id"
+{service=~"inventory|order"} | json | trace_id="replace-with-32-character-trace-id"
 ```
 
 The provisioned Loki data source recognizes lowercase 32-character hexadecimal

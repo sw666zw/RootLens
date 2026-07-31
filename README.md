@@ -31,13 +31,18 @@ Milestone 2 adds that independently deployable Order Service and the first real
 distributed path:
 
 ```text
-Client -> Order Service -> Inventory Service -> PostgreSQL
+Client -> Order Service -> Order PostgreSQL
+                       -> Inventory Service -> Inventory PostgreSQL
 ```
 
 Order propagates the same request ID and W3C trace context to Inventory. Orders
-are not persisted, and reservation calls are not retried until idempotency can
-prevent a repeated request from subtracting stock twice. Order persistence,
-idempotency, compensation, and automated diagnosis remain future work.
+are stored in a database owned exclusively by Order. Each validated attempt is
+committed as `pending` before Inventory is called, then becomes `confirmed`,
+`rejected`, or `failed`. No transaction remains open during the HTTP call, and
+services never write each other's tables. If Inventory succeeds but Order
+cannot commit `confirmed`, the API returns a safe `503` and logs the
+consistency risk without calling Inventory again. Idempotency, reconciliation,
+compensation, retries, and automated diagnosis remain future work.
 
 ## Local observability quick start
 
@@ -50,12 +55,11 @@ only in Terminal scrollback. Each service writes structured JSON to its
 Terminal and its own file under `runtime/logs`; Alloy tails both files, and
 Loki stores the original JSON lines. Grafana loads Inventory-specific and
 distributed log dashboards. Both Python business services run directly on the
-developer's Mac; PostgreSQL, Prometheus, Loki, Alloy, Grafana, the Collector,
-and Jaeger run in Docker.
+developer's Mac; two independent PostgreSQL containers, Prometheus, Loki,
+Alloy, Grafana, the Collector, and Jaeger run in Docker.
 
 Copy the local-development environment example, start the Compose services,
-apply the Inventory Service migration, and run the service on all host
-interfaces:
+apply both service migrations, and run Inventory on all host interfaces:
 
 ```bash
 cp .env.example .env
@@ -64,6 +68,7 @@ set -a
 source .env
 set +a
 alembic -c services/inventory/alembic.ini upgrade head
+alembic -c services/order/alembic.ini upgrade head
 uvicorn --app-dir services/inventory/src inventory_service.main:app \
   --reload --host 0.0.0.0 --port 8000 --env-file .env
 ```
@@ -97,6 +102,11 @@ Open Grafana Explore, select **Loki**, and run
 `| request_id="..."` after `| json` to follow one distributed operation.
 Alloy's debugging UI is at <http://127.0.0.1:12345>, and Loki readiness is
 available at <http://127.0.0.1:3100/ready>.
+
+Order exposes unchanged liveness at `GET /health`, database readiness at
+`GET /health/ready`, deterministic history at `GET /orders`, and individual
+records at `GET /orders/{order_id}`. The Inventory database and schema remain
+unchanged.
 
 See [observability/README.md](observability/README.md) for configuration details,
 sample-traffic commands, verification steps, and safe shutdown guidance. See

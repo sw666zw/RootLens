@@ -10,6 +10,7 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -23,6 +24,7 @@ from opentelemetry.sdk.trace.sampling import (
     ParentBased,
     Sampler,
 )
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 DEFAULT_SERVICE_NAME = "rootlens-order"
 SERVICE_NAMESPACE = "rootlens"
@@ -113,19 +115,29 @@ class TracingResources:
     provider: TracerProvider
     app: FastAPI
     httpx_instrumentor: HTTPXClientInstrumentor
+    sqlalchemy_instrumentor: SQLAlchemyInstrumentor
+    engine: AsyncEngine
     client: httpx.AsyncClient | None = None
+    sqlalchemy_instrumented: bool = False
     closed: bool = False
 
-    def instrument_client(self, client: httpx.AsyncClient) -> None:
-        """Instrument the one application-owned HTTP client."""
-        if self.closed or self.client is not None:
+    def start(self, client: httpx.AsyncClient) -> None:
+        """Instrument this application's SQLAlchemy engine and HTTP client."""
+        if self.closed:
             return
-        self.httpx_instrumentor.instrument_client(
-            client,
-            tracer_provider=self.provider,
-            request_hook=_redact_httpx_url,
-        )
-        self.client = client
+        if not self.sqlalchemy_instrumented:
+            self.sqlalchemy_instrumentor.instrument(
+                engine=self.engine.sync_engine,
+                tracer_provider=self.provider,
+            )
+            self.sqlalchemy_instrumented = True
+        if self.client is None:
+            self.httpx_instrumentor.instrument_client(
+                client,
+                tracer_provider=self.provider,
+                request_hook=_redact_httpx_url,
+            )
+            self.client = client
 
     def shutdown(self) -> None:
         """Remove instrumentation and flush all pending spans once."""
@@ -134,6 +146,8 @@ class TracingResources:
         FastAPIInstrumentor.uninstrument_app(self.app)
         if self.client is not None:
             self.httpx_instrumentor.uninstrument_client(self.client)
+        if self.sqlalchemy_instrumented:
+            self.sqlalchemy_instrumentor.uninstrument()
         self.provider.force_flush()
         self.provider.shutdown()
         self.closed = True
@@ -141,6 +155,7 @@ class TracingResources:
 
 def configure_tracing(
     app: FastAPI,
+    engine: AsyncEngine,
     configuration: TracingConfiguration | None = None,
 ) -> TracingResources | None:
     """Instrument one FastAPI application when tracing is enabled."""
@@ -175,6 +190,8 @@ def configure_tracing(
         provider=provider,
         app=app,
         httpx_instrumentor=HTTPXClientInstrumentor(),
+        sqlalchemy_instrumentor=SQLAlchemyInstrumentor(),
+        engine=engine,
     )
 
 
