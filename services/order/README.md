@@ -34,9 +34,42 @@ second committed transition.
 There is one deliberate consistency gap: Inventory can reserve stock and the
 subsequent confirmed-state commit can fail. Order does not retry Inventory and
 returns `503 {"detail":"Order service unavailable."}` while logging
-`order_consistency_risk`. Idempotency, reconciliation, compensation, and
-retries are not implemented. Payments, queues, and automated diagnosis are
-also outside this milestone.
+`order_consistency_risk`. A keyed retry finds the durable `pending` row and
+does not reserve again. A later reconciliation milestone will address orders
+that remain pending permanently. Reconciliation, compensation, automatic
+retries, payments, queues, and automated diagnosis are outside this milestone.
+
+## Retry-safe creation with Idempotency-Key
+
+Clients may retry a POST when a connection closes or a response is lost, even
+though the server may already have completed the work. Reserving stock twice
+for one intended order is dangerous. `POST /orders` therefore accepts an
+optional `Idempotency-Key` header. Unkeyed requests retain the original
+behavior and every request is a separate attempt; clients that need retry-safe
+creation must supply a key and reuse it only for the same logical order.
+
+Order trims surrounding key whitespace, rejects blank keys and keys longer
+than 255 characters, and otherwise preserves the key exactly. It stores the
+key with a SHA-256 fingerprint of the normalized SKU and quantity. The stable
+fingerprint prevents one key from representing two different orders, without
+storing the raw request body. A PostgreSQL partial unique index atomically
+claims non-null keys while allowing any number of unkeyed orders.
+
+Repeated keyed requests behave as follows:
+
+- `confirmed` returns the original HTTP 201 body and
+  `Idempotency-Replayed: true`.
+- `rejected` replays the original safe 404 or 409 and adds that header.
+- `failed` replays the safe Inventory 503 and adds that header. It is not
+  automatically tried again because an ambiguous request must not later
+  reserve stock a second time.
+- `pending` returns HTTP 409 with `Retry-After: 1`; it is not marked replayed
+  because processing has no stored terminal result.
+- A matching key with a different normalized SKU or quantity returns HTTP 409.
+
+Automatic HTTP retries are intentionally absent. Retry policy belongs to the
+caller, and only a caller-provided idempotency key makes an Order POST safe to
+repeat.
 
 ## Install and configure
 
@@ -74,8 +107,10 @@ alembic -c services/inventory/alembic.ini upgrade head
 alembic -c services/order/alembic.ini upgrade head
 ```
 
-The application never creates tables automatically. Order Alembic reads only
-`ORDER_DATABASE_URL`; Inventory Alembic continues to read `DATABASE_URL`.
+The application never creates tables automatically. Order migration `0002`
+adds the paired idempotency columns, format checks, and partial unique index.
+Order Alembic reads only `ORDER_DATABASE_URL`; Inventory Alembic continues to
+read `DATABASE_URL`.
 
 ## Run both services
 
@@ -133,6 +168,43 @@ Both read APIs return `id`, `sku`, `quantity`, `status`,
 `remaining_inventory`, `failure_reason`, `request_id`, `trace_id`,
 `created_at`, and `updated_at`.
 
+Create a retry-safe order, replay it, and then demonstrate rejected key reuse:
+
+```bash
+curl -i -X POST http://127.0.0.1:8001/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-order-001' \
+  -d '{"sku":"LAPTOP-001","quantity":2}'
+curl -i -X POST http://127.0.0.1:8001/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-order-001' \
+  -d '{"sku":"LAPTOP-001","quantity":2}'
+curl -i -X POST http://127.0.0.1:8001/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-order-001' \
+  -d '{"sku":"LAPTOP-001","quantity":3}'
+```
+
+The second response contains `Idempotency-Replayed: true` and the same
+`order_id` and `remaining_inventory`. Compare Inventory before and after both
+matching POSTs; its quantity changes once:
+
+```bash
+curl -sS http://127.0.0.1:8000/items/LAPTOP-001
+```
+
+To demonstrate an in-progress conflict, send two simultaneous requests. The
+loser returns HTTP 409 with `Retry-After: 1` if the first request is still
+between its pending commit and terminal commit:
+
+```bash
+printf '%s\n' 1 2 | xargs -P2 -I{} curl -i -X POST \
+  http://127.0.0.1:8001/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: concurrent-demo-001' \
+  -d '{"sku":"LAPTOP-001","quantity":1}'
+```
+
 Create rejected records and inspect them:
 
 ```bash
@@ -166,7 +238,14 @@ Useful Grafana Explore queries are:
 {service="order"} | json | failure_reason="inventory_unavailable"
 {service=~"order|inventory"} | json | request_id="distributed-demo-001"
 {service="order"} | json | trace_id="REPLACE_WITH_32_HEX_TRACE_ID"
+{service="order"} | json | message="order_idempotency_claimed"
+{service="order"} | json | message="order_idempotency_replayed"
+{service="order"} | json | message="order_idempotency_conflict" | reason="payload_mismatch"
+{service="order"} | json | message="order_idempotency_conflict" | reason="in_progress"
 ```
+
+The raw idempotency key is never logged and never used as a Loki or Prometheus
+label. Logs contain only its SHA-256 hash for safe correlation.
 
 Open **RootLens Distributed Service Logs** for lifecycle events. Open Jaeger at
 <http://127.0.0.1:16686>, select `rootlens-order`, and search using the
@@ -176,14 +255,21 @@ Inventory server and SQLAlchemy spans.
 
 Prometheus continues to scrape the same Order `/metrics` target. The
 distributed overview includes database readiness, lifecycle transition rate,
-failed-order rate, and process-lifetime status counts:
+failed-order rate, process-lifetime status counts, and idempotency events by
+the bounded `outcome` label:
 
 ```bash
 curl -sS http://127.0.0.1:8001/metrics | grep '^rootlens_order'
+curl -sS http://127.0.0.1:8001/metrics | grep '^rootlens_order_idempotency_events_total'
 open http://127.0.0.1:9090/targets
 open http://127.0.0.1:3000
 open http://127.0.0.1:16686
 ```
+
+In Jaeger, keyed Order server spans expose only
+`rootlens.order.idempotency_key_present` and the bounded
+`rootlens.order.idempotency_outcome`. A replay trace has no outgoing Inventory
+HTTP span because its response comes from stored Order state.
 
 ## Test and lint
 

@@ -68,7 +68,8 @@ pushes entries to Loki.
 
 Loki indexes a deliberately bounded set of labels: `service`, `environment`,
 `level`, and `job`. Request IDs, trace IDs, span IDs, SKUs, paths, quantities,
-timestamps, logger messages, and exception text remain JSON fields. Turning
+idempotency-key hashes, timestamps, logger messages, and exception text remain
+JSON fields. Raw idempotency keys are never logged. Turning
 those request-specific values into labels would create an ever-growing index;
 parsing them at query time keeps correlation available without that
 high-cardinality cost.
@@ -180,6 +181,10 @@ Search for one request ID:
 {service="order"} | json | order_id="replace-with-order-id"
 {service="order"} | json | status="failed"
 {service="order"} | json | failure_reason="inventory_unavailable"
+{service="order"} | json | message="order_idempotency_claimed"
+{service="order"} | json | message="order_idempotency_replayed"
+{service="order"} | json | message="order_idempotency_conflict" | reason="payload_mismatch"
+{service="order"} | json | message="order_idempotency_conflict" | reason="in_progress"
 ```
 
 Search for one trace ID:
@@ -192,7 +197,9 @@ The provisioned Loki data source recognizes lowercase 32-character hexadecimal
 `trace_id` values. Expand a matching log row and use **View trace in Jaeger** to
 open the same trace through the provisioned Jaeger data source. The
 **RootLens Distributed Service Logs** dashboard provides both services and a
-request-ID textbox for following one operation across the boundary.
+request-ID textbox for following one operation across the boundary. Its Order
+Idempotency Events panel exposes claims, replays, and both conflict reasons
+without creating per-key Loki labels.
 
 Inspect Alloy's component graph and status at <http://127.0.0.1:12345>. Check
 Loki directly and query recent entries with:
@@ -216,6 +223,19 @@ curl -fsS -u "${GRAFANA_ADMIN_USER}:${GRAFANA_ADMIN_PASSWORD}" \
 Prometheus targets are at <http://127.0.0.1:9090/targets>; Jaeger is at
 <http://127.0.0.1:16686>. The Collector health endpoint is
 <http://127.0.0.1:13133/>.
+
+Inspect the bounded idempotency counter and its provisioned dashboard panel:
+
+```bash
+curl -sS http://127.0.0.1:8001/metrics | \
+  grep '^rootlens_order_idempotency_events_total'
+```
+
+The only label is `outcome`, with `claimed`, `replayed`, `payload_mismatch`,
+or `in_progress`. In Jaeger, keyed Order server spans contain the safe
+`rootlens.order.idempotency_key_present` and
+`rootlens.order.idempotency_outcome` attributes. Replayed traces have no
+outgoing Inventory HTTP span.
 
 ## Stop safely
 

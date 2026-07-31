@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, String, func
+from sqlalchemy import CheckConstraint, DateTime, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from order_service.models.base import Base
@@ -30,6 +30,20 @@ class Order(Base):
             "'order_persistence_failure')",
             name="ck_orders_failure_reason_allowed",
         ),
+        CheckConstraint(
+            "(idempotency_key IS NULL) = (request_fingerprint IS NULL)",
+            name="ck_orders_idempotency_fields_paired",
+        ),
+        CheckConstraint(
+            "request_fingerprint IS NULL OR request_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_orders_request_fingerprint_format",
+        ),
+        Index(
+            "uq_orders_idempotency_key_not_null",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -40,6 +54,8 @@ class Order(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_id: Mapped[str] = mapped_column(String(255), nullable=False)
     trace_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

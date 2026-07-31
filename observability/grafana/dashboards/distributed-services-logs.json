@@ -57,6 +57,16 @@
       "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=\"order\"} | json | message=~\"order_persistence_.*|order_status_changed|order_consistency_risk\"", "queryType": "range", "refId": "A"}],
       "title": "Order Persistence Lifecycle",
       "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Idempotency claims, completed replays, payload mismatches, and in-progress conflicts. Keys remain hashed JSON fields and are never Loki labels.",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 39},
+      "id": 6,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=\"order\"} | json | message=~\"order_idempotency_claimed|order_idempotency_replayed|order_idempotency_conflict\"", "queryType": "range", "refId": "A"}],
+      "title": "Order Idempotency Events",
+      "type": "logs"
     }
   ],
   "refresh": "5s",
@@ -82,6 +92,6 @@
   "timezone": "browser",
   "title": "RootLens Distributed Service Logs",
   "uid": "rootlens-distributed-logs",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

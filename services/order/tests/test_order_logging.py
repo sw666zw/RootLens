@@ -7,12 +7,22 @@ from pathlib import Path
 
 import httpx
 import pytest
-from test_support.order import make_client, successful_inventory
+from test_support.order import (
+    InMemoryOrdersRepository,
+    make_client,
+    successful_inventory,
+)
 
 from order_service.logging_config import (
     FileLoggingSettings,
     configure_logging,
 )
+from order_service.repositories import orders
+
+
+class FailingFinalRepository(InMemoryOrdersRepository):
+    async def change_status(self, *args: object, **kwargs: object) -> None:
+        raise orders.OrderPersistenceError
 
 
 def parsed_lines(output: io.StringIO) -> list[dict[str, object]]:
@@ -114,6 +124,72 @@ def test_lifecycle_logs_contain_transition_fields() -> None:
     assert changed["new_status"] == "confirmed"
     assert changed["remaining_inventory"] == 8
     assert changed["request_id"] == "lifecycle-request"
+
+
+def test_idempotency_logs_hash_keys_and_report_bounded_events() -> None:
+    output = io.StringIO()
+    configure_logging(output)
+    raw_key = "private-client-key"
+
+    with make_client(successful_inventory) as client:
+        client.post(
+            "/orders",
+            headers={"Idempotency-Key": raw_key, "X-Request-ID": "first"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+        client.post(
+            "/orders",
+            headers={"Idempotency-Key": raw_key, "X-Request-ID": "replay"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+        client.post(
+            "/orders",
+            headers={"Idempotency-Key": raw_key, "X-Request-ID": "mismatch"},
+            json={"sku": "SKU-002", "quantity": 1},
+        )
+
+    events = parsed_lines(output)
+    claimed = next(
+        item for item in events if item["message"] == "order_idempotency_claimed"
+    )
+    replayed = next(
+        item for item in events if item["message"] == "order_idempotency_replayed"
+    )
+    conflict = next(
+        item for item in events if item["message"] == "order_idempotency_conflict"
+    )
+    assert len(str(claimed["idempotency_key_hash"])) == 64
+    assert replayed["order_status"] == "confirmed"
+    assert replayed["replayed_http_status"] == 201
+    assert conflict["level"] == "WARNING"
+    assert conflict["reason"] == "payload_mismatch"
+    assert raw_key not in output.getvalue()
+
+
+def test_in_progress_log_has_safe_fields() -> None:
+    output = io.StringIO()
+    configure_logging(output)
+    repository = FailingFinalRepository()
+    with make_client(successful_inventory, repository=repository) as client:
+        client.post(
+            "/orders",
+            headers={"Idempotency-Key": "pending-private-key"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+        client.post(
+            "/orders",
+            headers={"Idempotency-Key": "pending-private-key"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+
+    conflict = next(
+        item
+        for item in parsed_lines(output)
+        if item["message"] == "order_idempotency_conflict"
+    )
+    assert conflict["reason"] == "in_progress"
+    assert "order_id" in conflict
+    assert "pending-private-key" not in output.getvalue()
 
 
 def test_file_logging_uses_temp_directory_without_duplicate_lines(

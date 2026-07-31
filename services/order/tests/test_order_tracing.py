@@ -98,6 +98,45 @@ def test_incoming_context_outgoing_propagation_and_correlation() -> None:
     }
 
 
+def test_replay_trace_has_safe_outcome_and_no_second_inventory_span() -> None:
+    exporter = InMemorySpanExporter()
+    with make_client(
+        successful_inventory,
+        tracing_configuration(exporter),
+    ) as client:
+        first = client.post(
+            "/orders",
+            headers={"Idempotency-Key": "trace-private-key"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+        replay = client.post(
+            "/orders",
+            headers={
+                "Idempotency-Key": "trace-private-key",
+                "X-Request-ID": "replay-request",
+            },
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+
+    spans = exporter.get_finished_spans()
+    servers = [span for span in spans if span.kind is trace.SpanKind.SERVER]
+    clients = [span for span in spans if span.kind is trace.SpanKind.CLIENT]
+    replay_span = next(
+        span
+        for span in servers
+        if span.attributes.get("rootlens.request_id") == "replay-request"
+    )
+    assert first.status_code == replay.status_code == 201
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert replay.headers["X-Request-ID"] == "replay-request"
+    assert "X-Trace-ID" in replay.headers
+    assert len(clients) == 1
+    assert replay_span.attributes["rootlens.order.idempotency_key_present"] is True
+    assert replay_span.attributes["rootlens.order.idempotency_outcome"] == "replayed"
+    assert "trace-private-key" not in str(replay_span.attributes)
+    assert "request_fingerprint" not in str(replay_span.attributes)
+
+
 def test_metrics_excluded_and_repeated_apps_do_not_warn() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
