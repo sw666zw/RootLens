@@ -5,11 +5,16 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from opentelemetry import trace
 from opentelemetry.trace import Span, Status, StatusCode, Tracer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from order_service.api.idempotency import (
+    INVENTORY_UNAVAILABLE_DETAIL,
+    handle_existing_claim,
+    normalize_idempotency_key,
+)
 from order_service.clients import (
     InsufficientInventoryError,
     InventoryClient,
@@ -19,6 +24,7 @@ from order_service.clients import (
     InventoryUnavailableError,
 )
 from order_service.database import get_database_session
+from order_service.idempotency import idempotency_key_hash, request_fingerprint
 from order_service.logging_config import LOGGER_NAME, SERVICE_NAME
 from order_service.metrics import OrderMetrics
 from order_service.repositories import orders
@@ -183,7 +189,7 @@ def _failed_outcome(error: Exception) -> FailedOutcome:
         "failed",
         reason,
         status.HTTP_503_SERVICE_UNAVAILABLE,
-        "Inventory service unavailable.",
+        INVENTORY_UNAVAILABLE_DETAIL,
         "order_creation_failed",
         logging.ERROR,
         "error",
@@ -193,6 +199,7 @@ def _failed_outcome(error: Exception) -> FailedOutcome:
 @router.post("", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(
     request: Request,
+    response: Response,
     order_data: OrderCreate,
     inventory: Annotated[InventoryClient, Depends(get_inventory_client)],
     session: Annotated[AsyncSession, Depends(get_database_session)],
@@ -200,9 +207,27 @@ async def create_order(
         orders.OrdersRepository,
         Depends(get_order_repository),
     ],
+    idempotency_key_header: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
 ) -> OrderResponse:
     """Persist a complete order attempt around one Inventory reservation."""
     metrics: OrderMetrics = request.app.state.metrics
+    server_span = trace.get_current_span()
+    server_span.set_attribute(
+        "rootlens.order.idempotency_key_present",
+        idempotency_key_header is not None,
+    )
+    idempotency_key = normalize_idempotency_key(idempotency_key_header)
+    fingerprint = (
+        request_fingerprint(order_data.sku, order_data.quantity)
+        if idempotency_key is not None
+        else None
+    )
+    key_hash = (
+        idempotency_key_hash(idempotency_key) if idempotency_key is not None else None
+    )
     request_id = get_request_id()
     if request_id is None:
         raise RuntimeError("Request ID middleware is not configured.")
@@ -210,7 +235,6 @@ async def create_order(
     order_id = uuid4()
     trace_ids = current_trace_ids()
     trace_id = trace_ids[0] if trace_ids is not None else None
-    server_span = trace.get_current_span()
     tracing_resources = request.app.state.tracing
     persistence_tracer = (
         tracing_resources.provider.get_tracer(__name__)
@@ -227,6 +251,8 @@ async def create_order(
             "rootlens.order.status": "pending",
         }
     )
+    if idempotency_key is None:
+        server_span.set_attribute("rootlens.order.idempotency_outcome", "unkeyed")
     log_fields = {
         "service": SERVICE_NAME,
         "request_id": request_id,
@@ -241,13 +267,15 @@ async def create_order(
             record_exception=False,
             set_status_on_exception=False,
         ):
-            await repository.create_pending(
+            claim = await repository.claim_pending(
                 session,
                 order_id=order_id,
                 sku=order_data.sku,
                 quantity=order_data.quantity,
                 request_id=request_id,
                 trace_id=trace_id,
+                idempotency_key=idempotency_key,
+                request_fingerprint=fingerprint,
             )
     except orders.OrderPersistenceError as error:
         _log_persistence_failure(
@@ -266,12 +294,38 @@ async def create_order(
             detail=ORDER_UNAVAILABLE_DETAIL,
         ) from error
 
+    if not claim.claimed:
+        if fingerprint is None or key_hash is None:
+            raise RuntimeError("Unkeyed order claim unexpectedly resolved a duplicate.")
+        return handle_existing_claim(
+            response=response,
+            order=claim.order,
+            fingerprint=fingerprint,
+            metrics=metrics,
+            server_span=server_span,
+            request_id=request_id,
+            key_hash=key_hash,
+        )
+
     metrics.status_transitions.labels("none", "pending").inc()
     server_span.set_attribute("rootlens.order.persisted", True)
     logger.info(
         "order_persistence_started",
         extra={**log_fields, "status": "pending"},
     )
+    if key_hash is not None:
+        metrics.idempotency_events.labels("claimed").inc()
+        server_span.set_attribute("rootlens.order.idempotency_outcome", "claimed")
+        logger.info(
+            "order_idempotency_claimed",
+            extra={
+                "service": SERVICE_NAME,
+                "order_id": str(order_id),
+                "idempotency_key_hash": key_hash,
+                "request_id": request_id,
+                "status": "pending",
+            },
+        )
 
     try:
         reservation = await inventory.reserve(

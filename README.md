@@ -41,8 +41,18 @@ committed as `pending` before Inventory is called, then becomes `confirmed`,
 `rejected`, or `failed`. No transaction remains open during the HTTP call, and
 services never write each other's tables. If Inventory succeeds but Order
 cannot commit `confirmed`, the API returns a safe `503` and logs the
-consistency risk without calling Inventory again. Idempotency, reconciliation,
-compensation, retries, and automated diagnosis remain future work.
+consistency risk without calling Inventory again. `POST /orders` now accepts
+an optional `Idempotency-Key`: the pending-row commit atomically claims the
+key, and matching retries replay a stored confirmed, rejected, or failed
+result without reserving Inventory twice. A stable SHA-256 fingerprint of the
+normalized SKU and quantity rejects reuse of one key for different order
+data. Pending repeats return a retryable 409. Raw keys are neither logged nor
+used as metric or Loki labels.
+
+Automatic retries remain intentionally absent; retry-safe callers must supply
+and reuse their own key. Permanently pending orders will be addressed by a
+later reconciliation milestone. Compensation, queues, payment processing, and
+automated diagnosis also remain future work.
 
 ## Local observability quick start
 
@@ -107,6 +117,16 @@ Order exposes unchanged liveness at `GET /health`, database readiness at
 `GET /health/ready`, deterministic history at `GET /orders`, and individual
 records at `GET /orders/{order_id}`. The Inventory database and schema remain
 unchanged.
+
+Order migration `0002` adds the nullable paired idempotency fields, fingerprint
+format constraint, and partial unique key index. Apply it after loading `.env`:
+
+```bash
+alembic -c services/order/alembic.ini upgrade head
+```
+
+See the Order README for first-request, replay, payload-conflict, concurrency,
+stock-verification, logs, metrics, and trace examples.
 
 See [observability/README.md](observability/README.md) for configuration details,
 sample-traffic commands, verification steps, and safe shutdown guidance. See

@@ -33,6 +33,9 @@ _STRUCTURED_FIELDS = (
     "new_status",
     "failure_reason",
     "operation",
+    "idempotency_key_hash",
+    "order_status",
+    "replayed_http_status",
 )
 
 

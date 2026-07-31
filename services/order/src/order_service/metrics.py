@@ -17,6 +17,7 @@ class OrderMetrics:
     http_errors: Counter
     creations: Counter
     status_transitions: Counter
+    idempotency_events: Counter
     database_ready: Gauge
 
 
@@ -54,6 +55,12 @@ def create_metrics() -> OrderMetrics:
             "rootlens_order_status_transitions_total",
             "Successfully persisted Order status transitions.",
             ("from_status", "to_status"),
+            registry=registry,
+        ),
+        idempotency_events=Counter(
+            "rootlens_order_idempotency_events_total",
+            "Order idempotency events by bounded outcome.",
+            ("outcome",),
             registry=registry,
         ),
         database_ready=Gauge(
