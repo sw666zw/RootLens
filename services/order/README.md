@@ -1,24 +1,46 @@
 # RootLens Order Service
 
-The Order Service is RootLens's second independently deployable FastAPI
-business service. It accepts a transient order, asks Inventory Service to
-atomically reserve its stock in PostgreSQL, and confirms the order only after
-that reservation succeeds:
+The Order Service owns durable records of every validated order attempt. It
+stores those records in its own PostgreSQL database and calls Inventory Service
+to reserve stock:
 
 ```text
-Client -> Order Service :8001 -> Inventory Service :8000 -> PostgreSQL
+Client -> Order Service :8001 -> Order PostgreSQL :5433
+                              -> Inventory Service :8000 -> Inventory PostgreSQL :5432
 ```
 
-Order Service generates a UUID only after successful reservation. It does not
-persist that UUID or any order data. Order persistence, idempotency,
-compensation, payments, queues, circuit breakers, and automated diagnosis are
-future milestones. Reservation calls are deliberately not retried: without an
-idempotency key, retrying an ambiguous request could subtract stock twice.
+Each service owns its data and schema. Order never writes Inventory tables, and
+Inventory never writes Order tables. This prevents one service from coupling
+its releases, transactions, and failure handling to another service's private
+implementation.
+
+## Order lifecycle
+
+After request validation, Order generates its UUID and commits a `pending` row
+before contacting Inventory. Inventory is never called if that commit fails.
+Storing the attempt first makes downstream failures discoverable:
+
+- `pending`: the attempt is durable but has no final Inventory outcome yet.
+- `confirmed`: Inventory reserved stock and the final state was committed.
+- `rejected`: Inventory reported `item_not_found` or
+  `insufficient_inventory`.
+- `failed`: Inventory was unavailable or returned an invalid response.
+
+The pending transaction commits before the HTTP call. Holding a database
+transaction open while waiting on another service would occupy a connection
+and make transaction duration depend on network latency. The final status is a
+second committed transition.
+
+There is one deliberate consistency gap: Inventory can reserve stock and the
+subsequent confirmed-state commit can fail. Order does not retry Inventory and
+returns `503 {"detail":"Order service unavailable."}` while logging
+`order_consistency_risk`. Idempotency, reconciliation, compensation, and
+retries are not implemented. Payments, queues, and automated diagnosis are
+also outside this milestone.
 
 ## Install and configure
 
-From the repository root, use Python 3.12 and install both independently
-deployable services with their development dependencies:
+Use Python 3.12 and install both services with development dependencies:
 
 ```bash
 python3.12 -m venv .venv
@@ -28,21 +50,34 @@ python -m pip install -e "services/inventory[dev]" -e "services/order[dev]"
 cp .env.example .env
 ```
 
-The committed example uses Order port `8001`, Inventory URL
-`http://localhost:8000`, trace service name `rootlens-order`, and file
-`runtime/logs/order.jsonl`. A real `.env` is private and ignored.
+Do not commit `.env`. If one already exists, copy the `ORDER_POSTGRES_*` and
+`ORDER_DATABASE_URL` entries from `.env.example` into it. Keep the password in
+`ORDER_DATABASE_URL` consistent with `ORDER_POSTGRES_PASSWORD`. The committed
+values are local-development defaults, not production credentials.
 
-## Run both services
+## Start databases and apply migrations
 
-Start the existing Compose stack and migrate only the Inventory database:
+Start the two independent PostgreSQL containers:
 
 ```bash
-docker compose up -d
+docker compose up -d postgres order-postgres
+docker compose ps postgres order-postgres
+```
+
+Load the private environment and apply each service's migration:
+
+```bash
 set -a
 source .env
 set +a
 alembic -c services/inventory/alembic.ini upgrade head
+alembic -c services/order/alembic.ini upgrade head
 ```
+
+The application never creates tables automatically. Order Alembic reads only
+`ORDER_DATABASE_URL`; Inventory Alembic continues to read `DATABASE_URL`.
+
+## Run both services
 
 Run Inventory in one terminal:
 
@@ -58,13 +93,22 @@ uvicorn --app-dir services/order/src order_service.main:app \
   --reload --host 0.0.0.0 --port 8001 --env-file .env
 ```
 
-Both bind to `0.0.0.0` so Prometheus in Docker can scrape the host services.
-Order's `GET /health` is an independent liveness check and never calls
-Inventory.
+`GET /health` is liveness and remains independent of PostgreSQL and Inventory.
+`GET /health/ready` is readiness: it returns `200` only when Order PostgreSQL
+answers `SELECT 1`, otherwise it returns the safe `503` response.
 
-## Create orders and exercise outcomes
+Stop only Order PostgreSQL and verify the distinction:
 
-Seed stock through Inventory, then create an order:
+```bash
+docker compose stop order-postgres
+curl -i http://127.0.0.1:8001/health
+curl -i http://127.0.0.1:8001/health/ready
+docker compose start order-postgres
+```
+
+## Create and retrieve orders
+
+Seed Inventory and create an order:
 
 ```bash
 curl -i -X POST http://127.0.0.1:8000/items \
@@ -76,72 +120,78 @@ curl -i -X POST http://127.0.0.1:8001/orders \
   -d '{"sku":"LAPTOP-001","quantity":2}'
 ```
 
-A successful request returns HTTP `201` with exactly `order_id`, `sku`,
-`quantity`, `status`, and `remaining_inventory`. Trigger the principal failure
-paths with:
+Success remains HTTP `201` with exactly `order_id`, `sku`, `quantity`,
+`status`, and `remaining_inventory`. Copy the returned `order_id`, then use:
 
 ```bash
-# Missing item: Order returns 404.
+curl -i http://127.0.0.1:8001/orders
+curl -i http://127.0.0.1:8001/orders/REPLACE_WITH_ORDER_ID
+```
+
+The list is ordered by `created_at` descending and UUID ascending for ties.
+Both read APIs return `id`, `sku`, `quantity`, `status`,
+`remaining_inventory`, `failure_reason`, `request_id`, `trace_id`,
+`created_at`, and `updated_at`.
+
+Create rejected records and inspect them:
+
+```bash
 curl -i -X POST http://127.0.0.1:8001/orders \
   -H 'Content-Type: application/json' \
   -d '{"sku":"MISSING","quantity":1}'
-
-# Insufficient stock: Order returns 409.
 curl -i -X POST http://127.0.0.1:8001/orders \
   -H 'Content-Type: application/json' \
   -d '{"sku":"LAPTOP-001","quantity":1000000}'
-
-# Unavailable Inventory: stop only Inventory's Uvicorn process, then Order returns 503.
-curl -i -X POST http://127.0.0.1:8001/orders \
-  -H 'Content-Type: application/json' \
-  -d '{"sku":"LAPTOP-001","quantity":1}'
+curl -sS http://127.0.0.1:8001/orders
 ```
+
+To create `inventory_unavailable`, stop the Inventory Uvicorn process, submit
+an order, restart Inventory, and retrieve the failed record.
 
 ## Correlate logs, traces, and metrics
 
-Order preserves a nonblank caller `X-Request-ID`, or generates a UUID, and
-sends that same value to Inventory. Search both JSONL files directly:
+Order logs flow through Alloy to Loki. Order ID, request ID, trace ID, status,
+failure reason, and SKU remain parsed JSON fields, not Loki labels. Search the
+local file:
 
 ```bash
-rg 'distributed-demo-001' \
-  runtime/logs/order.jsonl runtime/logs/inventory.jsonl
+rg 'REPLACE_WITH_ORDER_ID' runtime/logs/order.jsonl
 ```
 
-Or query both services in Grafana's Loki data source:
+Useful Grafana Explore queries are:
 
 ```logql
+{service="order"} | json | order_id="REPLACE_WITH_ORDER_ID"
+{service="order"} | json | status="failed"
+{service="order"} | json | failure_reason="inventory_unavailable"
 {service=~"order|inventory"} | json | request_id="distributed-demo-001"
+{service="order"} | json | trace_id="REPLACE_WITH_32_HEX_TRACE_ID"
 ```
 
-Open **RootLens Distributed Service Logs** for dedicated Order and Inventory
-panels and a request-ID textbox. Request IDs stay parsed JSON fields rather
-than high-cardinality Loki labels.
+Open **RootLens Distributed Service Logs** for lifecycle events. Open Jaeger at
+<http://127.0.0.1:16686>, select `rootlens-order`, and search using the
+`X-Trace-ID` response header or stored `trace_id`. A complete distributed trace
+can include Order server, persistence, SQLAlchemy, and HTTPX spans plus
+Inventory server and SQLAlchemy spans.
 
-Open Jaeger at <http://127.0.0.1:16686>, select `rootlens-order`, and open the
-trace returned as `X-Trace-ID`. FastAPI extracts incoming W3C `traceparent`;
-HTTPX injects the active context into the Inventory call automatically. One
-trace therefore contains Order server/client spans plus Inventory server and
-SQLAlchemy spans.
-
-Inspect both metrics endpoints and Prometheus targets:
+Prometheus continues to scrape the same Order `/metrics` target. The
+distributed overview includes database readiness, lifecycle transition rate,
+failed-order rate, and process-lifetime status counts:
 
 ```bash
-curl -sS http://127.0.0.1:8000/metrics | grep '^rootlens_'
-curl -sS http://127.0.0.1:8001/metrics | grep '^rootlens_'
+curl -sS http://127.0.0.1:8001/metrics | grep '^rootlens_order'
 open http://127.0.0.1:9090/targets
+open http://127.0.0.1:3000
+open http://127.0.0.1:16686
 ```
-
-In Grafana at <http://127.0.0.1:3000>, open **RootLens Distributed Services
-Overview** for target status, request/error rates, p95 latency, order outcomes,
-and reservation outcomes.
 
 ## Test and lint
 
-Normal tests use HTTPX `MockTransport`; they require no network, Docker,
-database, Inventory process, or observability backend:
+Unit tests use dependency overrides and in-memory doubles. They require no
+Docker, PostgreSQL, network, Inventory process, or observability backend:
 
 ```bash
-python -m pytest services/order
-python -m pytest services/inventory
-python -m ruff check services/inventory services/order
+python3.12 -m pytest services/order
+python3.12 -m pytest services/inventory
+python3.12 -m ruff check services/inventory services/order
 ```

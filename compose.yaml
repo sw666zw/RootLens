@@ -20,6 +20,28 @@ services:
     networks:
       - rootlens
 
+  order-postgres:
+    image: postgres:17-alpine
+    container_name: rootlens-order-postgres
+    environment:
+      POSTGRES_DB: ${ORDER_POSTGRES_DB:-rootlens_orders}
+      POSTGRES_USER: ${ORDER_POSTGRES_USER:-rootlens_order}
+      POSTGRES_PASSWORD: ${ORDER_POSTGRES_PASSWORD:-rootlens_order_dev_password}
+    ports:
+      - "127.0.0.1:${ORDER_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - order_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - rootlens
+
   prometheus:
     image: prom/prometheus:v3.12.0
     container_name: rootlens-prometheus
@@ -119,6 +141,7 @@ services:
 
 volumes:
   postgres_data:
+  order_postgres_data:
   prometheus_data:
   grafana_data:
   loki_data:

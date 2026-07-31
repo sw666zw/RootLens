@@ -4,6 +4,7 @@ import io
 import json
 import warnings
 from typing import Any
+from unittest.mock import Mock
 
 import httpx
 from opentelemetry import trace
@@ -11,8 +12,14 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
+from test_support.order import (
+    InMemoryOrdersRepository,
+    make_client,
+    successful_inventory,
+)
 
-from helpers import make_client, successful_inventory
+from order_service.api.orders import get_order_repository
+from order_service.database import get_database_session
 from order_service.logging_config import configure_logging
 from order_service.tracing import TracingConfiguration, TracingSettings
 
@@ -69,6 +76,9 @@ def test_incoming_context_outgoing_propagation_and_correlation() -> None:
     assert response.headers["X-Trace-ID"] == incoming_trace_id
     assert server.attributes["rootlens.request_id"] == "correlated-request"
     assert server.attributes["rootlens.order.operation"] == "create"
+    assert len(server.attributes["rootlens.order.id"]) == 36
+    assert server.attributes["rootlens.order.persisted"] is True
+    assert server.attributes["rootlens.order.status"] == "confirmed"
     assert server.attributes["rootlens.order.sku"] == "SKU-001"
     assert server.attributes["rootlens.order.quantity"] == 1
     assert server.attributes["rootlens.order.outcome"] == "confirmed"
@@ -82,6 +92,10 @@ def test_incoming_context_outgoing_propagation_and_correlation() -> None:
     assert all(item["request_id"] == "correlated-request" for item in logs)
     assert all(item["trace_id"] == incoming_trace_id for item in logs)
     assert all(len(str(item["span_id"])) == 16 for item in logs)
+    assert {span.name for span in spans} >= {
+        "order.persist_pending",
+        "order.persist_result",
+    }
 
 
 def test_metrics_excluded_and_repeated_apps_do_not_warn() -> None:
@@ -137,6 +151,12 @@ def test_http_client_is_reused_and_closed() -> None:
     from order_service.main import create_app
 
     application = create_app(http_client_factory=factory)
+
+    async def override_session() -> Any:
+        yield object()
+
+    application.dependency_overrides[get_database_session] = override_session
+    application.dependency_overrides[get_order_repository] = InMemoryOrdersRepository
     with FastAPITestClient(application) as client:
         first_owned = application.state.http_client
         client.post("/orders", json={"sku": "SKU-001", "quantity": 1})
@@ -146,3 +166,28 @@ def test_http_client_is_reused_and_closed() -> None:
 
     assert len(clients) == 1
     assert clients[0].is_closed
+
+
+def test_sqlalchemy_instrumentation_is_applied_once(monkeypatch: Any) -> None:
+    instrument = Mock()
+    monkeypatch.setattr(
+        "order_service.tracing.SQLAlchemyInstrumentor.instrument",
+        instrument,
+    )
+    monkeypatch.setattr(
+        "order_service.tracing.SQLAlchemyInstrumentor.uninstrument",
+        Mock(),
+    )
+    monkeypatch.setattr(
+        "order_service.tracing.FastAPIInstrumentor.instrument_app",
+        Mock(),
+    )
+    exporter = InMemorySpanExporter()
+
+    with make_client(
+        successful_inventory,
+        tracing_configuration(exporter),
+    ) as client:
+        client.get("/health")
+
+    assert instrument.call_count == 1

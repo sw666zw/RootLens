@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from prometheus_client import CollectorRegistry, Counter, Histogram
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 
 HTTP_LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
 
@@ -16,6 +16,8 @@ class OrderMetrics:
     http_request_duration: Histogram
     http_errors: Counter
     creations: Counter
+    status_transitions: Counter
+    database_ready: Gauge
 
 
 def create_metrics() -> OrderMetrics:
@@ -46,6 +48,17 @@ def create_metrics() -> OrderMetrics:
             "rootlens_order_creations_total",
             "Order creation attempts by outcome and reason.",
             ("outcome", "reason"),
+            registry=registry,
+        ),
+        status_transitions=Counter(
+            "rootlens_order_status_transitions_total",
+            "Successfully persisted Order status transitions.",
+            ("from_status", "to_status"),
+            registry=registry,
+        ),
+        database_ready=Gauge(
+            "rootlens_order_database_ready",
+            "Whether the Order database passed its latest readiness check.",
             registry=registry,
         ),
     )

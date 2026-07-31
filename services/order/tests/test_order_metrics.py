@@ -2,8 +2,20 @@
 
 import httpx
 import pytest
+from test_support.order import (
+    InMemoryOrdersRepository,
+    make_client,
+    sample_values,
+    scrape,
+    successful_inventory,
+)
 
-from helpers import make_client, sample_values, scrape, successful_inventory
+from order_service.repositories import orders
+
+
+class FailingFinalRepository(InMemoryOrdersRepository):
+    async def change_status(self, *args: object, **kwargs: object) -> None:
+        raise orders.OrderPersistenceError
 
 
 def test_metrics_endpoint_and_self_exclusion() -> None:
@@ -51,7 +63,7 @@ def test_every_creation_outcome_increments_metric(
             "method": "POST",
             "route": "/orders",
             "status_code": str(
-                {200: 201, 404: 404, 409: 409, 500: 503, 422: 502}[status_code]
+                {200: 201, 404: 404, 409: 409, 500: 503, 422: 503}[status_code]
             ),
         },
     ) == [1.0]
@@ -66,3 +78,43 @@ def test_application_instances_have_isolated_registries() -> None:
 
     assert "rootlens_order_http_requests_total{" in first_metrics
     assert "rootlens_order_http_requests_total{" not in second_metrics
+
+
+def test_status_transition_metrics_follow_successful_commits() -> None:
+    with make_client(successful_inventory) as client:
+        client.post("/orders", json={"sku": "SKU-001", "quantity": 1})
+        exposition = scrape(client)
+
+    assert sample_values(
+        exposition,
+        "rootlens_order_status_transitions_total",
+        {"from_status": "none", "to_status": "pending"},
+    ) == [1.0]
+    assert sample_values(
+        exposition,
+        "rootlens_order_status_transitions_total",
+        {"from_status": "pending", "to_status": "confirmed"},
+    ) == [1.0]
+
+
+def test_failed_final_commit_does_not_increment_confirmed_transition() -> None:
+    with make_client(
+        successful_inventory,
+        repository=FailingFinalRepository(),
+    ) as client:
+        client.post("/orders", json={"sku": "SKU-001", "quantity": 1})
+        exposition = scrape(client)
+
+    assert sample_values(
+        exposition,
+        "rootlens_order_status_transitions_total",
+        {"from_status": "none", "to_status": "pending"},
+    ) == [1.0]
+    assert (
+        sample_values(
+            exposition,
+            "rootlens_order_status_transitions_total",
+            {"from_status": "pending", "to_status": "confirmed"},
+        )
+        == []
+    )

@@ -47,6 +47,16 @@
       "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=~\"inventory|order\"} | json | request_id=\"$request_id\"", "queryType": "range", "refId": "A"}],
       "title": "One Request ID Across Both Services",
       "type": "logs"
+    },
+    {
+      "datasource": {"type": "loki", "uid": "loki"},
+      "description": "Persisted lifecycle events expose order_id, status or new_status, failure_reason, request_id, and trace_id as parsed JSON fields, never Loki labels.",
+      "gridPos": {"h": 10, "w": 24, "x": 0, "y": 29},
+      "id": 5,
+      "options": {"dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true},
+      "targets": [{"direction": "backward", "editorMode": "code", "expr": "{service=\"order\"} | json | message=~\"order_persistence_.*|order_status_changed|order_consistency_risk\"", "queryType": "range", "refId": "A"}],
+      "title": "Order Persistence Lifecycle",
+      "type": "logs"
     }
   ],
   "refresh": "5s",

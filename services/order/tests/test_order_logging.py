@@ -7,8 +7,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+from test_support.order import make_client, successful_inventory
 
-from helpers import make_client, successful_inventory
 from order_service.logging_config import (
     FileLoggingSettings,
     configure_logging,
@@ -87,6 +87,33 @@ def test_success_log_has_required_fields() -> None:
     assert event["quantity"] == 1
     assert event["remaining_inventory"] == 8
     assert "order_id" in event
+
+
+def test_lifecycle_logs_contain_transition_fields() -> None:
+    output = io.StringIO()
+    configure_logging(output)
+
+    with make_client(successful_inventory) as client:
+        client.post(
+            "/orders",
+            headers={"X-Request-ID": "lifecycle-request"},
+            json={"sku": "SKU-001", "quantity": 1},
+        )
+
+    events = parsed_lines(output)
+    pending = next(
+        event for event in events if event["message"] == "order_persistence_started"
+    )
+    changed = next(
+        event for event in events if event["message"] == "order_status_changed"
+    )
+    assert pending["status"] == "pending"
+    assert pending["request_id"] == "lifecycle-request"
+    assert "order_id" in pending
+    assert changed["previous_status"] == "pending"
+    assert changed["new_status"] == "confirmed"
+    assert changed["remaining_inventory"] == 8
+    assert changed["request_id"] == "lifecycle-request"
 
 
 def test_file_logging_uses_temp_directory_without_duplicate_lines(
