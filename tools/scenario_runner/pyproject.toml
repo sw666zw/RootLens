@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rootlens-scenario-runner"
+version = "0.1.0"
+description = "Repeatable local incident scenarios for RootLens"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.27,<1.0"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.24,<1.0",
+    "ruff>=0.9,<1.0",
+]
+
+[project.scripts]
+rootlens-scenario = "rootlens_scenarios.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

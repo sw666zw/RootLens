@@ -7,6 +7,10 @@ from inventory_service.api.health import router as health_router
 from inventory_service.api.items import router as items_router
 from inventory_service.api.metrics import router as metrics_router
 from inventory_service.database import DatabaseResources, create_database_resources
+from inventory_service.faults import (
+    ReservationFaultController,
+    fault_injection_enabled,
+)
 from inventory_service.logging_config import configure_logging
 from inventory_service.metrics import create_metrics
 from inventory_service.middleware.metrics import MetricsMiddleware
@@ -21,11 +25,19 @@ from inventory_service.tracing import (
 def create_app(
     resources: DatabaseResources | None = None,
     tracing: TracingConfiguration | None = None,
+    *,
+    enable_fault_injection: bool | None = None,
+    fault_controller: ReservationFaultController | None = None,
 ) -> FastAPI:
     """Create and configure the Inventory Service application."""
     configure_logging()
     application_resources = resources or create_database_resources()
     application_metrics = create_metrics()
+    faults_enabled = (
+        fault_injection_enabled()
+        if enable_fault_injection is None
+        else enable_fault_injection
+    )
 
     tracing_resources: TracingResources | None = None
 
@@ -49,11 +61,19 @@ def create_app(
     )
     application.state.database_resources = application_resources
     application.state.metrics = application_metrics
+    if faults_enabled:
+        application.state.fault_controller = (
+            fault_controller or ReservationFaultController()
+        )
     application.add_middleware(RequestLoggingMiddleware)
     application.add_middleware(MetricsMiddleware, metrics=application_metrics)
     application.include_router(health_router)
     application.include_router(items_router)
     application.include_router(metrics_router)
+    if faults_enabled:
+        from inventory_service.api.faults import router as faults_router
+
+        application.include_router(faults_router)
     tracing_resources = configure_tracing(
         application,
         application_resources.engine,

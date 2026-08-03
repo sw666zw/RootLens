@@ -1,5 +1,6 @@
 """Create and read endpoints for inventory items."""
 
+import asyncio
 import logging
 from typing import Annotated
 
@@ -10,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from inventory_service.database import get_database_session
+from inventory_service.faults import ReservationFailureMode
 from inventory_service.logging_config import LOGGER_NAME, SERVICE_NAME
 from inventory_service.metrics import InventoryMetrics
 from inventory_service.repositories import inventory_items
@@ -98,6 +100,20 @@ async def reserve_item(
         "rootlens.inventory.requested_quantity": reservation.quantity,
     }
     set_current_span_attributes(trace_fields)
+    controller = getattr(request.app.state, "fault_controller", None)
+    if controller is not None:
+        fault = await controller.read()
+        if fault.delay_ms:
+            await asyncio.sleep(fault.delay_ms / 1000)
+        if fault.failure_mode is ReservationFailureMode.SERVICE_UNAVAILABLE:
+            set_current_span_attributes(
+                {"rootlens.inventory.outcome": "service_unavailable"}
+            )
+            metrics.reservations.labels("error", "service_unavailable").inc()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Inventory service unavailable.",
+            )
     try:
         result = await inventory_items.reserve_inventory_item(
             session,

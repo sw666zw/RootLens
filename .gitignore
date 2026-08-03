@@ -39,6 +39,11 @@ runtime/logs/*
 runtime/logs/inventory.jsonl
 runtime/logs/order.jsonl
 
+# Generated incident ground truth (kept outside the Loki-mounted log directory)
+!runtime/incidents/
+runtime/incidents/*
+!runtime/incidents/.gitkeep
+
 # macOS
 .DS_Store
 .AppleDouble

@@ -8,6 +8,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from inventory_service.metrics import InventoryMetrics
 
 METRICS_PATH = "/metrics"
+FAULTS_PATH_PREFIX = "/internal/faults"
 UNMATCHED_ROUTE = "unmatched"
 
 
@@ -24,7 +25,12 @@ class MetricsMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        if scope["type"] != "http" or scope.get("path") == METRICS_PATH:
+        path = scope.get("path", "")
+        if (
+            scope["type"] != "http"
+            or path == METRICS_PATH
+            or path.startswith(FAULTS_PATH_PREFIX)
+        ):
             await self.app(scope, receive, send)
             return
 

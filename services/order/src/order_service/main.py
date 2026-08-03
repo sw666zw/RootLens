@@ -28,7 +28,7 @@ HttpClientFactory = Callable[[Settings], httpx.AsyncClient]
 def _default_http_client(settings: Settings) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=settings.inventory_service_url,
-        timeout=httpx.Timeout(5.0),
+        timeout=httpx.Timeout(15.0),
     )
 
 

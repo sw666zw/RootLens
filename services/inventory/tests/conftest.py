@@ -7,3 +7,4 @@ os.environ["DATABASE_URL"] = (
 )
 os.environ["OTEL_TRACES_ENABLED"] = "false"
 os.environ["ROOTLENS_FILE_LOGGING_ENABLED"] = "false"
+os.environ["ROOTLENS_FAULT_INJECTION_ENABLED"] = "false"

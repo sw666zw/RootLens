@@ -78,6 +78,13 @@ This is not a production deployment. Loki has no authentication, runs as one
 process, and uses local filesystem storage. Jaeger uses in-memory storage. The
 stack has no alerting or automated diagnosis.
 
+Milestone 3's scenario reports are deliberately outside this data flow.
+`runtime/incidents` is not mounted into Alloy, generated JSON is ignored by
+Git, and reports are not sent to Loki. Fault-control setup calls are excluded
+from Inventory request metrics, completion logs, and tracing, but the affected
+Order and Inventory reservation business requests remain visible in
+Prometheus, Loki, Grafana, and Jaeger.
+
 ## Configure the private environment
 
 From the repository root, create the ignored local environment file:
@@ -97,6 +104,8 @@ ORDER_DATABASE_URL=postgresql+asyncpg://rootlens_order:rootlens_order_dev_passwo
 ROOTLENS_FILE_LOGGING_ENABLED=true
 ROOTLENS_LOG_FILE_PATH=runtime/logs/inventory.jsonl
 ROOTLENS_ORDER_LOG_FILE_PATH=runtime/logs/order.jsonl
+ROOTLENS_FAULT_INJECTION_ENABLED=true
+ROOTLENS_INCIDENT_OUTPUT_DIR=runtime/incidents
 ```
 
 Also copy any missing `OTEL_*` entries from `.env.example`. The example
@@ -133,6 +142,20 @@ uvicorn --app-dir services/order/src order_service.main:app \
 
 The application creates `runtime/logs` when file logging is enabled. Generated
 JSONL files are ignored by Git.
+
+After installing `tools/scenario_runner`, generate controlled traffic with:
+
+```bash
+rootlens-scenario run baseline
+rootlens-scenario run inventory-latency --delay-ms 1500
+rootlens-scenario run inventory-unavailable
+rootlens-scenario reset
+```
+
+Use report request IDs in Grafana/Loki and trace IDs in Jaeger. Compare HTTP
+status and duration panels in **RootLens Distributed Services Overview**.
+Control requests will not appear; business requests will. The runner never
+queries these backends. See `tools/scenario_runner/README.md` for full setup.
 
 ## Generate representative telemetry
 

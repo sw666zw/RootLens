@@ -220,6 +220,15 @@ curl -sS http://127.0.0.1:8001/orders
 To create `inventory_unavailable`, stop the Inventory Uvicorn process, submit
 an order, restart Inventory, and retrieve the failed record.
 
+For repeatable local incidents, enable Inventory's development-only controls
+and use the scenario runner described in
+[`tools/scenario_runner/README.md`](../../tools/scenario_runner/README.md).
+`inventory-unavailable` exercises Order's existing safe translation: Inventory
+returns 503 before reservation, Order persists the failed attempt, and the
+client receives `{"detail":"Inventory service unavailable."}`. The runner
+adds no retries or compensation. Stopping Inventory or a real database remains
+a separate manual outage exercise.
+
 ## Correlate logs, traces, and metrics
 
 Order logs flow through Alloy to Loki. Order ID, request ID, trace ID, status,
