@@ -14,6 +14,7 @@ from inventory_service.tracing import current_trace_ids, set_current_span_attrib
 
 REQUEST_ID_HEADER = "X-Request-ID"
 TRACE_ID_HEADER = "X-Trace-ID"
+FAULTS_PATH_PREFIX = "/internal/faults"
 
 
 class RequestLoggingMiddleware:
@@ -29,7 +30,9 @@ class RequestLoggingMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or scope.get("path", "").startswith(
+            FAULTS_PATH_PREFIX
+        ):
             await self.app(scope, receive, send)
             return
 

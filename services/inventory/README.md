@@ -20,6 +20,39 @@ Docker Compose runs PostgreSQL plus the local Prometheus, Loki, Alloy, Grafana,
 OpenTelemetry Collector, and Jaeger services; it does not containerize the
 Inventory Service.
 
+## Development-only reservation faults
+
+Controlled incidents give the future RootLens diagnosis engine repeatable
+evaluation inputs. They do not perform diagnosis. Fault injection is disabled
+by default and normal startup creates no controller, file, or persistent state.
+For local scenario work only, add this to the private `.env`:
+
+```dotenv
+ROOTLENS_FAULT_INJECTION_ENABLED=true
+ROOTLENS_INCIDENT_OUTPUT_DIR=runtime/incidents
+```
+
+When enabled, Inventory registers hidden `GET`, `PUT`, and `DELETE` operations
+at `/internal/faults/reservation`. They are absent from OpenAPI and accept only
+loopback clients (`127.0.0.1`, `::1`, or localhost where provided by the ASGI
+server). This is a development safety boundary, not production authentication.
+The in-memory, application-owned configuration resets on restart and never
+changes the database by itself.
+
+The complete configuration is `delay_ms` (0–10000) plus `failure_mode`
+(`none` or `service_unavailable`). Delay uses nonblocking `asyncio.sleep` before
+normal reservation. Unavailable returns exactly HTTP 503 with
+`{"detail":"Inventory service unavailable."}` before the repository or a
+database transaction is entered. Health, readiness, and item create/read APIs
+are unaffected.
+
+Fault-control calls are setup operations and are excluded from Inventory HTTP
+metrics, request-completion logs, and OpenTelemetry spans. Actual affected
+`/items/{sku}/reserve` calls remain observable. Application logs do not disclose
+the configured injection mode; ground truth is written separately by the
+scenario runner. See
+[`tools/scenario_runner/README.md`](../../tools/scenario_runner/README.md).
+
 ## Database migrations
 
 A database migration is a versioned, reversible description of a schema

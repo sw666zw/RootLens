@@ -10,9 +10,9 @@ RootLens is expected to include telemetry ingestion for logs, metrics, and trace
 
 1. Build a small inventory service that will later serve as a system under observation.
 2. Instrument the inventory service and establish collection of logs, metrics, and distributed traces.
-3. Correlate telemetry across requests, services, and time windows.
-4. Detect representative incidents and generate evidence-backed root-cause hypotheses.
-5. Provide an investigation experience for reviewing incidents, correlated signals, and likely causes.
+3. Generate repeatable controlled incidents with independent ground truth.
+4. Correlate telemetry and generate evidence-backed root-cause hypotheses.
+5. Provide an investigation experience for reviewing incidents and evidence.
 
 Milestone 1 established Inventory Service health endpoints, request IDs,
 structured request logging, Prometheus-compatible application metrics, a local
@@ -53,6 +53,18 @@ Automatic retries remain intentionally absent; retry-safe callers must supply
 and reuse their own key. Permanently pending orders will be addressed by a
 later reconciliation milestone. Compensation, queues, payment processing, and
 automated diagnosis also remain future work.
+
+Milestone 3 adds development-only Inventory reservation faults and a separate
+Python scenario runner. This creates repeatable baseline, latency, and
+unavailable traffic through Order so a future diagnosis engine has known
+ground truth to evaluate. Fault injection is not automated diagnosis: the
+runner does not query telemetry or infer a cause. Inventory registers the
+hidden, loopback-only controls only when
+`ROOTLENS_FAULT_INJECTION_ENABLED=true`; the default is false. Control requests
+are excluded from normal telemetry, while affected business requests keep
+their logs, metrics, request/trace IDs, and distributed traces. Reports under
+`runtime/incidents` are ignored by Git and are outside the Alloy log mount, so
+they are not sent to Loki. Automated diagnosis is the next major milestone.
 
 ## Local observability quick start
 
@@ -134,3 +146,6 @@ sample-traffic commands, verification steps, and safe shutdown guidance. See
 Service API and development workflow.
 See [services/order/README.md](services/order/README.md) for Order Service and
 the distributed request workflow.
+See [tools/scenario_runner/README.md](tools/scenario_runner/README.md) for local
+fault-safety boundaries, installation, scenario commands, reports, and
+telemetry inspection.

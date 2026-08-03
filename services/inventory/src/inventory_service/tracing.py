@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 DEFAULT_SERVICE_NAME = "rootlens-inventory"
 SERVICE_NAMESPACE = "rootlens"
 DEPLOYMENT_ENVIRONMENT = "local"
-METRICS_EXCLUDED_URLS = r"^.*/metrics$"
+TELEMETRY_EXCLUDED_URLS = r"^.*/metrics$,^.*/internal/faults.*$"
 
 SpanProcessorFactory = Callable[[SpanExporter], SpanProcessor]
 
@@ -157,7 +157,7 @@ def configure_tracing(
     FastAPIInstrumentor.instrument_app(
         app,
         tracer_provider=provider,
-        excluded_urls=METRICS_EXCLUDED_URLS,
+        excluded_urls=TELEMETRY_EXCLUDED_URLS,
     )
     return TracingResources(
         provider=provider,
