@@ -56,15 +56,26 @@ automated diagnosis also remain future work.
 
 Milestone 3 adds development-only Inventory reservation faults and a separate
 Python scenario runner. This creates repeatable baseline, latency, and
-unavailable traffic through Order so a future diagnosis engine has known
-ground truth to evaluate. Fault injection is not automated diagnosis: the
+unavailable traffic through Order with independent known ground truth. Fault
+injection is not diagnosis: the
 runner does not query telemetry or infer a cause. Inventory registers the
 hidden, loopback-only controls only when
 `ROOTLENS_FAULT_INJECTION_ENABLED=true`; the default is false. Control requests
 are excluded from normal telemetry, while affected business requests keep
 their logs, metrics, request/trace IDs, and distributed traces. Reports under
 `runtime/incidents` are ignored by Git and are outside the Alloy log mount, so
-they are not sent to Loki. Automated diagnosis is the next major milestone.
+they are not sent to Loki.
+
+The first Milestone 3 diagnosis engine is now a separate Python 3.12 CLI under
+`tools/diagnosis_engine`. It queries fixed RootLens Prometheus metrics,
+correlated Loki JSON events, and exact Jaeger v3 traces over one normalized
+incident window. Transparent deterministic rules score `none`,
+`inventory_reservation_latency`, and `inventory_service_unavailable`, falling
+back to `unknown` for weak or conflicting evidence. A strict safe-context
+projection prevents scenario names, IDs, expected answers, symptoms, target
+service, and filenames from reaching analysis. The separate evaluator reads
+ground truth only after diagnosis. Generated diagnosis and evaluation reports
+under `runtime/diagnoses` are ignored by Git.
 
 ## Local observability quick start
 
@@ -149,3 +160,6 @@ the distributed request workflow.
 See [tools/scenario_runner/README.md](tools/scenario_runner/README.md) for local
 fault-safety boundaries, installation, scenario commands, reports, and
 telemetry inspection.
+See [tools/diagnosis_engine/README.md](tools/diagnosis_engine/README.md) for
+telemetry-correlation design, installation, analysis, evaluation, evidence
+inspection, partial-source behavior, and current limitations.
