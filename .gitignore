@@ -44,6 +44,11 @@ runtime/logs/order.jsonl
 runtime/incidents/*
 !runtime/incidents/.gitkeep
 
+# Generated diagnosis and evaluation reports
+!runtime/diagnoses/
+runtime/diagnoses/*
+!runtime/diagnoses/.gitkeep
+
 # macOS
 .DS_Store
 .AppleDouble
