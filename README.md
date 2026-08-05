@@ -97,6 +97,16 @@ roots and allowlist projections prevent traversal and keep scenario evaluation
 ground truth out of normal API responses. The CLI remains useful for direct
 local and evaluation workflows.
 
+Milestone 3 now includes a polished local-development web interface under
+`apps/web`. The React and TypeScript application consumes only the Diagnosis
+Service's ground-truth-safe HTTP API. It provides responsive overview,
+incident, diagnosis, evidence, explanation, and validation views without
+reading report files, accessing databases, querying telemetry systems, or
+calling OpenAI from the browser. Vite's local `/api` proxy connects port `5173`
+to the Diagnosis Service on port `8002` without adding CORS behavior to the
+backend. Deterministic diagnoses remain authoritative; explanations remain
+constrained narratives over completed reports.
+
 ## Local observability quick start
 
 Prometheus collects measurements exposed by all three host services at
@@ -141,6 +151,20 @@ In a third terminal:
 uvicorn --app-dir services/diagnosis/src diagnosis_service.main:app \
   --reload --host 0.0.0.0 --port 8002 --env-file .env
 ```
+
+Install the locked web dependencies once and start Vite in a fourth terminal:
+
+```bash
+cd apps/web
+npm ci
+npm run dev
+```
+
+Open <http://localhost:5173>. Generate an incident with
+`rootlens-scenario run baseline`, open **Incidents**, run its diagnosis, then
+generate and validate a template explanation. OpenAI explanations must be
+enabled only in the private backend environment; the API key never enters the
+browser. See the web README for the full workflow and frontend quality checks.
 
 Binding Uvicorn to `0.0.0.0` is required because Prometheus reaches the Mac
 host from its container through `host.docker.internal` on ports `8000`, `8001`,
@@ -189,6 +213,9 @@ See [services/order/README.md](services/order/README.md) for Order Service and
 the distributed request workflow.
 See [services/diagnosis/README.md](services/diagnosis/README.md) for ID-safe API
 installation, curl workflows, explanations, validation, and observability.
+See [apps/web/README.md](apps/web/README.md) for the browser workflow, Vite proxy,
+frontend installation, safe OpenAI boundary, tests, lint, type checking, and
+production build commands.
 See [tools/scenario_runner/README.md](tools/scenario_runner/README.md) for local
 fault-safety boundaries, installation, scenario commands, reports, and
 telemetry inspection.
