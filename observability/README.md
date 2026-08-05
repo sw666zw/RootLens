@@ -54,6 +54,12 @@ Order Service on the Mac
   -> Grafana Alloy in Docker
   -> Grafana Loki in Docker
   -> Grafana Explore and RootLens Distributed Service Logs
+Diagnosis Service on the Mac
+  -> Terminal JSON output
+  -> runtime/logs/diagnosis.jsonl
+  -> Grafana Alloy in Docker
+  -> Grafana Loki in Docker
+  -> Grafana Explore
 ```
 
 File output is additional: it does not replace Terminal output and it does not
@@ -74,9 +80,21 @@ those request-specific values into labels would create an ever-growing index;
 parsing them at query time keeps correlation available without that
 high-cardinality cost.
 
+Diagnosis IDs remain JSON fields too, never labels. Useful LogQL queries are:
+
+```logql
+{service="diagnosis"} | json | message="diagnosis_completed"
+{service="diagnosis"} | json | message="diagnosis_failed"
+{service="diagnosis"} | json | message="explanation_completed"
+{service="diagnosis"} | json | diagnosis_id="replace-with-diagnosis-id"
+{service="diagnosis"} | json | incident_id="replace-with-scenario-id"
+{service="diagnosis"} | json | request_id="replace-with-request-id"
+{service="diagnosis"} | json | trace_id="replace-with-trace-id"
+```
+
 This is not a production deployment. Loki has no authentication, runs as one
 process, and uses local filesystem storage. Jaeger uses in-memory storage. The
-stack has no alerting or automated diagnosis.
+stack has no alerting or automated remediation.
 
 Milestone 3's scenario reports are deliberately outside this data flow.
 `runtime/incidents` is not mounted into Alloy, generated JSON is ignored by
@@ -138,6 +156,13 @@ Run Order Service in another terminal:
 ```bash
 uvicorn --app-dir services/order/src order_service.main:app \
   --reload --host 0.0.0.0 --port 8001 --env-file .env
+```
+
+Run Diagnosis Service in a third terminal:
+
+```bash
+uvicorn --app-dir services/diagnosis/src diagnosis_service.main:app \
+  --reload --host 0.0.0.0 --port 8002 --env-file .env
 ```
 
 The application creates `runtime/logs` when file logging is enabled. Generated

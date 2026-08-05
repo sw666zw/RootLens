@@ -35,9 +35,10 @@ logs/
 !runtime/logs/
 runtime/logs/*
 !runtime/logs/.gitkeep
-# Explicit documentation of the two local service log targets.
+# Explicit documentation of the three local service log targets.
 runtime/logs/inventory.jsonl
 runtime/logs/order.jsonl
+runtime/logs/diagnosis.jsonl
 
 # Generated incident ground truth (kept outside the Loki-mounted log directory)
 !runtime/incidents/

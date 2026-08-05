@@ -1,0 +1,1 @@
+"""Diagnosis Service report repositories."""

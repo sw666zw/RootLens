@@ -89,15 +89,25 @@ an explicit provider selection, enable flag, API key, optional dependency, and
 one stateless Structured Outputs request. Explanation and validation JSON under
 `runtime/explanations` is local runtime output and is ignored by Git.
 
+Milestone 3 now also exposes those artifacts through a separate Diagnosis
+Service on port `8002`. The FastAPI service imports the deterministic engine
+directly, reuses application-scoped telemetry clients, and preserves its atomic
+reports. API clients use strict report IDs instead of local paths; resolved
+roots and allowlist projections prevent traversal and keep scenario evaluation
+ground truth out of normal API responses. The CLI remains useful for direct
+local and evaluation workflows.
+
 ## Local observability quick start
 
-Prometheus collects measurements exposed by both business services at
-`GET /metrics`. Grafana displays them in **RootLens Distributed Services
-Overview**. OpenTelemetry records Order HTTP client, Inventory request, and
-database spans; the Collector forwards them and Jaeger displays the trace.
+Prometheus collects measurements exposed by all three host services at
+`GET /metrics`. Grafana displays business telemetry in **RootLens Distributed
+Services Overview** and API telemetry in **RootLens Diagnosis Service
+Overview**. OpenTelemetry records Order HTTP client, Inventory request,
+Diagnosis API and telemetry-client, and database spans; the Collector forwards
+them and Jaeger displays the traces.
 Centralized logging makes application events queryable instead of leaving them
 only in Terminal scrollback. Each service writes structured JSON to its
-Terminal and its own file under `runtime/logs`; Alloy tails both files, and
+Terminal and its own file under `runtime/logs`; Alloy tails all three files, and
 Loki stores the original JSON lines. Grafana loads Inventory-specific and
 distributed log dashboards. Both Python business services run directly on the
 developer's Mac; two independent PostgreSQL containers, Prometheus, Loki,
@@ -125,16 +135,24 @@ uvicorn --app-dir services/order/src order_service.main:app \
   --reload --host 0.0.0.0 --port 8001 --env-file .env
 ```
 
+In a third terminal:
+
+```bash
+uvicorn --app-dir services/diagnosis/src diagnosis_service.main:app \
+  --reload --host 0.0.0.0 --port 8002 --env-file .env
+```
+
 Binding Uvicorn to `0.0.0.0` is required because Prometheus reaches the Mac
-host from its container through `host.docker.internal` on ports `8000` and
-`8001`; binding only to `127.0.0.1` would accept requests solely from the Mac's
+host from its container through `host.docker.internal` on ports `8000`, `8001`,
+and `8002`; binding only to `127.0.0.1` would accept requests solely from the Mac's
 own loopback interface.
 Docker Desktop supplies `host.docker.internal` as the container-to-host DNS
 name, and the Compose `host-gateway` mapping improves portability on compatible
 Docker engines.
 
 Open the Prometheus targets page at <http://127.0.0.1:9090/targets> and confirm
-that `inventory-service` and `order-service` are `UP`. Open Grafana at
+that `inventory-service`, `order-service`, and `diagnosis-service` are `UP`.
+Open Grafana at
 <http://127.0.0.1:3000>, sign
 in with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`, then open
 **Dashboards > RootLens > RootLens Distributed Services Overview**. The defaults in
@@ -169,6 +187,8 @@ sample-traffic commands, verification steps, and safe shutdown guidance. See
 Service API and development workflow.
 See [services/order/README.md](services/order/README.md) for Order Service and
 the distributed request workflow.
+See [services/diagnosis/README.md](services/diagnosis/README.md) for ID-safe API
+installation, curl workflows, explanations, validation, and observability.
 See [tools/scenario_runner/README.md](tools/scenario_runner/README.md) for local
 fault-safety boundaries, installation, scenario commands, reports, and
 telemetry inspection.
