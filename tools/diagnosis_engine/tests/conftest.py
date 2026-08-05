@@ -4,11 +4,13 @@ from datetime import UTC, datetime
 
 import pytest
 
+from rootlens_diagnosis.engine import DiagnosisEngine
+from rootlens_diagnosis.explanation_providers import OpenAIExplanationProvider
 from rootlens_diagnosis.incident_context import (
     AnalysisWindow,
     IncidentAnalysisContext,
 )
-from rootlens_diagnosis.models import SourceStatus
+from rootlens_diagnosis.models import DiagnosisReport, SourceStatus
 from rootlens_diagnosis.telemetry.models import (
     LogFeatures,
     MetricsFeatures,
@@ -16,6 +18,36 @@ from rootlens_diagnosis.telemetry.models import (
     SourceResult,
     TraceFeatures,
 )
+
+EXPLANATION_ENV_WITH_TEST_DEFAULTS = {
+    "ROOTLENS_EXPLANATION_PROVIDER": "template",
+    "ROOTLENS_LLM_ENABLED": "false",
+}
+EXPLANATION_ENV_TO_CLEAR = (
+    "ROOTLENS_EXPLANATION_OUTPUT_DIR",
+    "ROOTLENS_LLM_TIMEOUT_SECONDS",
+    "ROOTLENS_LLM_MAX_OUTPUT_TOKENS",
+    "OPENAI_API_KEY",
+    "OPENAI_MODEL",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_explanation_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests offline and independent from private shell or .env values."""
+    for name, value in EXPLANATION_ENV_WITH_TEST_DEFAULTS.items():
+        monkeypatch.setenv(name, value)
+    for name in EXPLANATION_ENV_TO_CLEAR:
+        monkeypatch.delenv(name, raising=False)
+
+    def forbid_real_openai_client(_provider: OpenAIExplanationProvider) -> None:
+        raise AssertionError("tests must inject an OpenAI client or fake provider")
+
+    monkeypatch.setattr(
+        OpenAIExplanationProvider,
+        "_create_client",
+        forbid_real_openai_client,
+    )
 
 
 @pytest.fixture
@@ -156,4 +188,19 @@ def unavailable_telemetry() -> NormalizedTelemetry:
             error_span_count=40,
             slowest_service="inventory",
         ),
+    )
+
+
+@pytest.fixture
+def diagnosis_report(
+    context: IncidentAnalysisContext,
+    window: AnalysisWindow,
+    healthy_telemetry: NormalizedTelemetry,
+) -> DiagnosisReport:
+    return DiagnosisEngine().analyze(
+        context,
+        window,
+        healthy_telemetry,
+        diagnosis_id="diagnosis-safe-test",
+        generated_at=datetime(2026, 8, 3, 21, 0, tzinfo=UTC),
     )

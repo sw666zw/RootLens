@@ -49,6 +49,11 @@ runtime/incidents/*
 runtime/diagnoses/*
 !runtime/diagnoses/.gitkeep
 
+# Generated explanation and offline validation reports
+!runtime/explanations/
+runtime/explanations/*
+!runtime/explanations/.gitkeep
+
 # macOS
 .DS_Store
 .AppleDouble
