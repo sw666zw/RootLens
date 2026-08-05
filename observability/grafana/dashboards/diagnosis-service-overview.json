@@ -1,0 +1,79 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+      "targets": [{"expr": "up{job=\"diagnosis-service\"}", "legendFormat": "Diagnosis Service", "refId": "A"}],
+      "title": "Diagnosis Service target status",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 9, "x": 6, "y": 0},
+      "id": 2,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (route) (rate(rootlens_diagnosis_http_requests_total[$__rate_interval]))", "legendFormat": "{{route}}", "refId": "A"}],
+      "title": "Request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 9, "x": 15, "y": 0},
+      "id": 3,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (route, status_code) (rate(rootlens_diagnosis_http_errors_total[$__rate_interval]))", "legendFormat": "{{route}} {{status_code}}", "refId": "A"}],
+      "title": "Error rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 4,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, route) (rate(rootlens_diagnosis_http_request_duration_seconds_bucket[$__rate_interval])))", "legendFormat": "{{route}}", "refId": "A"}],
+      "title": "p95 request latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 5,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (root_cause, outcome) (rate(rootlens_diagnosis_runs_total[$__rate_interval]))", "legendFormat": "{{root_cause}} / {{outcome}}", "refId": "A"}],
+      "title": "Diagnosis outcomes by root cause",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "rootlens-prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"expr": "sum by (provider, status) (rate(rootlens_explanation_runs_total[$__rate_interval]))", "legendFormat": "{{provider}} / {{status}}", "refId": "A"}],
+      "title": "Explanation outcomes by provider and status",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["rootlens", "diagnosis"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "RootLens Diagnosis Service Overview",
+  "uid": "rootlens-diagnosis-service",
+  "version": 1
+}

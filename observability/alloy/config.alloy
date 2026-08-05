@@ -20,6 +20,17 @@ local.file_match "order_logs" {
   sync_period = "5s"
 }
 
+local.file_match "diagnosis_logs" {
+  path_targets = [{
+    "__address__" = "localhost",
+    "__path__"    = "/var/log/rootlens/diagnosis.jsonl",
+    "environment" = "local",
+    "job"         = "diagnosis-service",
+    "service"     = "diagnosis",
+  }]
+  sync_period = "5s"
+}
+
 loki.source.file "inventory_logs" {
   targets    = local.file_match.inventory_logs.targets
   forward_to = [loki.process.inventory_logs.receiver]
@@ -28,6 +39,11 @@ loki.source.file "inventory_logs" {
 loki.source.file "order_logs" {
   targets    = local.file_match.order_logs.targets
   forward_to = [loki.process.order_logs.receiver]
+}
+
+loki.source.file "diagnosis_logs" {
+  targets    = local.file_match.diagnosis_logs.targets
+  forward_to = [loki.process.diagnosis_logs.receiver]
 }
 
 loki.process "inventory_logs" {
@@ -58,6 +74,33 @@ loki.process "inventory_logs" {
 }
 
 loki.process "order_logs" {
+  stage.json {
+    expressions = {
+      level     = "level",
+      timestamp = "timestamp",
+    }
+  }
+
+  stage.timestamp {
+    source            = "timestamp"
+    format            = "RFC3339Nano"
+    action_on_failure = "fudge"
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.process "diagnosis_logs" {
   stage.json {
     expressions = {
       level     = "level",
