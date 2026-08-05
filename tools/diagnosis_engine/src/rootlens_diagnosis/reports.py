@@ -7,6 +7,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from rootlens_diagnosis.explanation_models import (
+    ExplanationReport,
+    ExplanationValidationReport,
+)
 from rootlens_diagnosis.models import DiagnosisReport, EvaluationReport
 
 
@@ -17,6 +21,18 @@ def write_diagnosis_report(report: DiagnosisReport, output_dir: Path) -> Path:
 def write_evaluation_report(report: EvaluationReport, output_dir: Path) -> Path:
     return _write_model_atomic(
         report, output_dir / f"{report.evaluation_id}.evaluation.json"
+    )
+
+
+def write_explanation_report(report: ExplanationReport, output_dir: Path) -> Path:
+    return _write_model_atomic(report, output_dir / f"{report.explanation_id}.json")
+
+
+def write_explanation_validation_report(
+    report: ExplanationValidationReport, output_dir: Path
+) -> Path:
+    return _write_model_atomic(
+        report, output_dir / f"{report.validation_id}.validation.json"
     )
 
 

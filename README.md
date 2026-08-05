@@ -77,6 +77,18 @@ service, and filenames from reaching analysis. The separate evaluator reads
 ground truth only after diagnosis. Generated diagnosis and evaluation reports
 under `runtime/diagnoses` are ignored by Git.
 
+Milestone 3 now also includes an optional explanation layer for an already
+generated diagnosis. The deterministic engine remains authoritative: neither
+the template provider nor the optional OpenAI provider can select or change the
+root cause, affected service, confidence, candidate scores, coverage, evidence,
+or outcome. Application code copies protected fields into the explanation and
+validates every evidence citation. Providers receive only a typed projection of
+normalized diagnosis data—never scenario ground truth, incident files, or raw
+telemetry responses. Template mode is the offline default; OpenAI use requires
+an explicit provider selection, enable flag, API key, optional dependency, and
+one stateless Structured Outputs request. Explanation and validation JSON under
+`runtime/explanations` is local runtime output and is ignored by Git.
+
 ## Local observability quick start
 
 Prometheus collects measurements exposed by both business services at
@@ -162,4 +174,5 @@ fault-safety boundaries, installation, scenario commands, reports, and
 telemetry inspection.
 See [tools/diagnosis_engine/README.md](tools/diagnosis_engine/README.md) for
 telemetry-correlation design, installation, analysis, evaluation, evidence
-inspection, partial-source behavior, and current limitations.
+inspection, safe template and OpenAI explanations, offline validation,
+partial-source behavior, and current limitations.

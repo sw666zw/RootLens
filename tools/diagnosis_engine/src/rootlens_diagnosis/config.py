@@ -11,6 +11,11 @@ DEFAULT_JAEGER_URL = "http://localhost:16686"
 DEFAULT_OUTPUT_DIR = Path("runtime/diagnoses")
 DEFAULT_PADDING_SECONDS = 15
 DEFAULT_TIMEOUT_SECONDS = 10.0
+DEFAULT_EXPLANATION_PROVIDER = "template"
+DEFAULT_EXPLANATION_OUTPUT_DIR = Path("runtime/explanations")
+DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+DEFAULT_LLM_MAX_OUTPUT_TOKENS = 1200
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 
 
 def validate_url(value: str, name: str) -> str:
@@ -41,6 +46,18 @@ def _float_environment(name: str, default: float) -> float:
         return float(raw)
     except ValueError as error:
         raise ValueError(f"{name} must be numeric") from error
+
+
+def _boolean_environment(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false")
 
 
 @dataclass(frozen=True)
@@ -107,9 +124,76 @@ class DiagnosisConfig:
         return prepare_output_directory(self.output_dir)
 
 
+@dataclass(frozen=True)
+class ExplanationConfig:
+    """Validated settings for explaining an existing diagnosis report."""
+
+    provider: str
+    llm_enabled: bool
+    output_dir: Path
+    timeout_seconds: float
+    max_output_tokens: int
+    openai_api_key: str | None
+    openai_model: str | None
+
+    @classmethod
+    def from_environment(
+        cls,
+        *,
+        output_dir: Path | None = None,
+    ) -> "ExplanationConfig":
+        provider = (
+            os.getenv("ROOTLENS_EXPLANATION_PROVIDER", DEFAULT_EXPLANATION_PROVIDER)
+            .strip()
+            .lower()
+        )
+        if provider not in {"template", "openai"}:
+            raise ValueError("unsupported explanation provider")
+        llm_enabled = _boolean_environment("ROOTLENS_LLM_ENABLED", False)
+        timeout = _float_environment(
+            "ROOTLENS_LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS
+        )
+        max_tokens = _integer_environment(
+            "ROOTLENS_LLM_MAX_OUTPUT_TOKENS", DEFAULT_LLM_MAX_OUTPUT_TOKENS
+        )
+        if timeout <= 0:
+            raise ValueError("LLM timeout must be positive")
+        if max_tokens <= 0:
+            raise ValueError("LLM max output tokens must be positive")
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+        if provider == "openai":
+            if not llm_enabled:
+                raise ValueError("OpenAI explanation provider is disabled")
+            if not api_key or not api_key.strip():
+                raise ValueError("OpenAI explanation provider requires OPENAI_API_KEY")
+            if not model or not model.strip():
+                raise ValueError("OpenAI explanation provider requires OPENAI_MODEL")
+
+        return cls(
+            provider=provider,
+            llm_enabled=llm_enabled,
+            output_dir=output_dir
+            or Path(
+                os.getenv(
+                    "ROOTLENS_EXPLANATION_OUTPUT_DIR",
+                    str(DEFAULT_EXPLANATION_OUTPUT_DIR),
+                )
+            ),
+            timeout_seconds=timeout,
+            max_output_tokens=max_tokens,
+            openai_api_key=api_key.strip() if api_key else None,
+            openai_model=model.strip() if model else None,
+        )
+
+    def prepare_output_dir(self) -> Path:
+        return prepare_output_directory(self.output_dir)
+
+
 def prepare_output_directory(path: Path) -> Path:
     """Create and validate output without loading unrelated telemetry settings."""
     path.mkdir(parents=True, exist_ok=True)
     if not path.is_dir() or not os.access(path, os.W_OK):
-        raise ValueError("diagnosis output directory is not writable")
+        raise ValueError("output directory is not writable")
     return path

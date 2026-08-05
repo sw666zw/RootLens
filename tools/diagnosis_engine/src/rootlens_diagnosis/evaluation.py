@@ -19,7 +19,7 @@ def evaluate_existing_diagnosis(
     evaluated_at: datetime | None = None,
 ) -> EvaluationReport:
     """Load a finished diagnosis, then read only evaluation ground truth."""
-    diagnosis = _load_diagnosis(diagnosis_path)
+    diagnosis = load_diagnosis(diagnosis_path)
     incident = _load_object(incident_path, "incident report")
     expected = incident.get("expected_root_cause")
     if not isinstance(expected, str) or not expected:
@@ -37,7 +37,7 @@ def evaluate_existing_diagnosis(
     )
 
 
-def _load_diagnosis(path: Path) -> DiagnosisReport:
+def load_diagnosis(path: Path) -> DiagnosisReport:
     try:
         return DiagnosisReport.model_validate(_load_object(path, "diagnosis report"))
     except ValidationError as error:
