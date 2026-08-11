@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  ROOTLENS_EXPLANATION_PROVIDER: template
+  ROOTLENS_LLM_ENABLED: "false"
+  OPENAI_API_KEY: ""
+  OTEL_TRACES_ENABLED: "false"
+  ROOTLENS_FILE_LOGGING_ENABLED: "false"
+
+jobs:
+  python:
+    name: Python 3.12
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            services/*/pyproject.toml
+            tools/*/pyproject.toml
+      - name: Install local packages and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -e 'tools/scenario_runner[dev]' \
+            -e 'tools/diagnosis_engine[dev]' \
+            -e 'tools/benchmark_runner[dev]' \
+            -e 'services/inventory[dev]' \
+            -e 'services/order[dev]' \
+            -e 'services/diagnosis[dev]'
+      - name: Validate Python dependency consistency
+        run: python -m pip check
+      - name: Run complete Python test suite
+        run: python -m pytest
+      - name: Run Ruff checks
+        run: python -m ruff check services tools test_support
+      - name: Check Ruff formatting
+        run: python -m ruff format --check services tools test_support
+
+  frontend:
+    name: Frontend Node 22
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run frontend tests
+        run: npm run test:run
+      - name: Run ESLint
+        run: npm run lint
+      - name: Check Prettier formatting
+        run: npm run format:check
+      - name: Run TypeScript checks
+        run: npm run typecheck
+      - name: Build frontend
+        run: npm run build
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+  configuration:
+    name: Configuration validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+      - name: Validate tracked Grafana dashboard JSON
+        run: |
+          for dashboard in observability/grafana/dashboards/*.json; do
+            python -m json.tool "$dashboard" >/dev/null
+          done
+      - name: Reject tracked private environment and runtime files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files"], text=True
+          ).splitlines()
+          private_env = []
+          runtime_outputs = []
+          for item in tracked:
+              name = Path(item).name
+              is_example = name == ".env.example"
+              is_environment = (
+                  name == ".env"
+                  or name.endswith(".env")
+                  or name.startswith(".env.")
+              )
+              if is_environment and not is_example:
+                  private_env.append(item)
+              if item.startswith("runtime/") and name != ".gitkeep":
+                  runtime_outputs.append(item)
+          if private_env or runtime_outputs:
+              raise SystemExit(
+                  "Tracked private/generated files: "
+                  + ", ".join(private_env + runtime_outputs)
+              )
+          PY

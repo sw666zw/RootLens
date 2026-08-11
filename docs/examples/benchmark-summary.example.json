@@ -1,0 +1,153 @@
+{
+  "average_confidence": 0.75,
+  "average_confidence_by_scenario": {
+    "baseline": 0.78,
+    "inventory-latency": 0.74,
+    "inventory-unavailable": 0.73
+  },
+  "benchmark_id": "example-benchmark-001",
+  "completed_runs": 3,
+  "confidence_level_counts": {
+    "medium": 3
+  },
+  "configuration": {
+    "concurrency": 2,
+    "latency_delay_ms": 1500,
+    "repetitions": 1,
+    "requests": 4,
+    "require_all_sources": false,
+    "scenarios": [
+      "baseline",
+      "inventory-latency",
+      "inventory-unavailable"
+    ],
+    "telemetry_settle_seconds": 15
+  },
+  "confusion_matrix": {
+    "inventory_reservation_latency": {
+      "inventory_reservation_latency": 1
+    },
+    "inventory_service_unavailable": {
+      "inventory_service_unavailable": 1
+    },
+    "none": {
+      "none": 1
+    }
+  },
+  "diagnosis_duration_statistics": {
+    "average_ms": 185.0,
+    "count": 3,
+    "maximum_ms": 210.0,
+    "median_ms": 180.0,
+    "minimum_ms": 165.0
+  },
+  "exact_matches": 3,
+  "failed_runs": 0,
+  "generated_at": "2026-08-11T12:05:00Z",
+  "individual_run_summaries": [
+    {
+      "confidence": 0.78,
+      "confidence_level": "medium",
+      "diagnosis_duration_ms": 165.0,
+      "diagnosis_report_id": "example-diagnosis-baseline-001",
+      "exact_match": true,
+      "expected_root_cause": "none",
+      "incident_report_id": "example-incident-baseline-001",
+      "predicted_root_cause": "none",
+      "run_number": 1,
+      "safe_failure_reason": null,
+      "scenario_duration_ms": 120.0,
+      "scenario_label": "baseline",
+      "telemetry_coverage": {
+        "logs": "available",
+        "metrics": "available",
+        "traces": "available"
+      }
+    },
+    {
+      "confidence": 0.74,
+      "confidence_level": "medium",
+      "diagnosis_duration_ms": 180.0,
+      "diagnosis_report_id": "example-diagnosis-latency-001",
+      "exact_match": true,
+      "expected_root_cause": "inventory_reservation_latency",
+      "incident_report_id": "example-incident-latency-001",
+      "predicted_root_cause": "inventory_reservation_latency",
+      "run_number": 1,
+      "safe_failure_reason": null,
+      "scenario_duration_ms": 3110.0,
+      "scenario_label": "inventory-latency",
+      "telemetry_coverage": {
+        "logs": "available",
+        "metrics": "available",
+        "traces": "available"
+      }
+    },
+    {
+      "confidence": 0.73,
+      "confidence_level": "medium",
+      "diagnosis_duration_ms": 210.0,
+      "diagnosis_report_id": "example-diagnosis-unavailable-001",
+      "exact_match": true,
+      "expected_root_cause": "inventory_service_unavailable",
+      "incident_report_id": "example-incident-unavailable-001",
+      "predicted_root_cause": "inventory_service_unavailable",
+      "run_number": 1,
+      "safe_failure_reason": null,
+      "scenario_duration_ms": 150.0,
+      "scenario_label": "inventory-unavailable",
+      "telemetry_coverage": {
+        "logs": "available",
+        "metrics": "available",
+        "traces": "available"
+      }
+    }
+  ],
+  "overall_accuracy": 1.0,
+  "per_scenario_results": {
+    "baseline": {
+      "accuracy": 1.0,
+      "completed_runs": 1,
+      "configured_runs": 1,
+      "exact_matches": 1,
+      "failed_runs": 0
+    },
+    "inventory-latency": {
+      "accuracy": 1.0,
+      "completed_runs": 1,
+      "configured_runs": 1,
+      "exact_matches": 1,
+      "failed_runs": 0
+    },
+    "inventory-unavailable": {
+      "accuracy": 1.0,
+      "completed_runs": 1,
+      "configured_runs": 1,
+      "exact_matches": 1,
+      "failed_runs": 0
+    }
+  },
+  "scenario_duration_statistics": {
+    "average_ms": 1126.667,
+    "count": 3,
+    "maximum_ms": 3110.0,
+    "median_ms": 150.0,
+    "minimum_ms": 120.0
+  },
+  "schema_version": "1.0",
+  "telemetry_coverage_counts": {
+    "logs": {
+      "available": 3
+    },
+    "metrics": {
+      "available": 3
+    },
+    "traces": {
+      "available": 3
+    }
+  },
+  "total_runs": 3,
+  "warnings": [
+    "Synthetic documentation example; no live benchmark was run."
+  ]
+}

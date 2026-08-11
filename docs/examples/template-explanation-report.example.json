@@ -1,0 +1,69 @@
+{
+  "affected_service": "inventory",
+  "causal_chain": [
+    "The diagnosed availability condition affected inventory.",
+    "Order reservation attempts encountered that unavailable dependency.",
+    "The dependency failure produced downstream order failures."
+  ],
+  "confidence": 0.72,
+  "confidence_level": "medium",
+  "diagnosis_id": "example-diagnosis-001",
+  "evidence_based_claims": [
+    {
+      "claim": "Found 4 correlated events with safe reason inventory_unavailable",
+      "evidence_refs": [
+        "evidence-001"
+      ]
+    }
+  ],
+  "evidence_index": [
+    {
+      "evidence_id": "evidence-001",
+      "observation": "Found 4 correlated events with safe reason inventory_unavailable",
+      "service": "order",
+      "severity": "supporting",
+      "signal": "reason_inventory_unavailable",
+      "source": "logs",
+      "unit": "events",
+      "value": 4.0
+    }
+  ],
+  "executive_summary": "The deterministic diagnosis identifies Inventory unavailability as the cause of downstream Order failures.",
+  "explanation_id": "example-template-explanation-001",
+  "follow_up_actions": [
+    "Review service availability evidence after stabilization."
+  ],
+  "generated_at": "2026-08-11T12:00:21Z",
+  "headline": "Inventory service unavailable",
+  "immediate_actions": [
+    "Verify Inventory readiness and service-up metrics."
+  ],
+  "impact": "Observed impact is downstream order failure associated with inventory unavailability.",
+  "model": null,
+  "operator_notes": "Synthetic offline template example.",
+  "provider": "template",
+  "provider_latency_ms": null,
+  "provider_response_id": null,
+  "provider_status": "completed",
+  "provider_usage": null,
+  "schema_version": "1.0",
+  "suspected_root_cause": "inventory_service_unavailable",
+  "telemetry_coverage": {
+    "logs": "available",
+    "metrics": "available",
+    "traces": "partial"
+  },
+  "uncertainties": [
+    "Trace coverage is partial in this synthetic example."
+  ],
+  "validation": {
+    "evidence_references_valid": true,
+    "no_ground_truth_fields": true,
+    "overall_valid": true,
+    "protected_fields_match": true,
+    "required_fields_present": true
+  },
+  "warnings": [
+    "Example trace coverage is intentionally partial."
+  ]
+}

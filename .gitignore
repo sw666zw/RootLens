@@ -55,6 +55,11 @@ runtime/diagnoses/*
 runtime/explanations/*
 !runtime/explanations/.gitkeep
 
+# Generated benchmark reports
+!runtime/benchmarks/
+runtime/benchmarks/*
+!runtime/benchmarks/.gitkeep
+
 # macOS
 .DS_Store
 .AppleDouble

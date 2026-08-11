@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rootlens-benchmark-runner"
+version = "0.1.0"
+description = "Repeatable evaluation runner for RootLens deterministic diagnosis"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27,<1.0",
+    "pydantic>=2.7,<3.0",
+    "rootlens-diagnosis-engine==0.1.0",
+    "rootlens-scenario-runner==0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.24,<1.0",
+    "ruff>=0.9,<1.0",
+]
+
+[project.scripts]
+rootlens-benchmark = "rootlens_benchmark.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+asyncio_mode = "auto"
+pythonpath = ["src", "../scenario_runner/src", "../diagnosis_engine/src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
