@@ -1,134 +1,88 @@
 # RootLens
 
-RootLens is a planned observability and automated incident-diagnosis platform for distributed services. Modern systems emit logs, metrics, and distributed traces across many components, but investigating an incident still requires engineers to manually connect those signals. RootLens will collect and correlate telemetry, reconstruct the context around failures, and surface evidence-backed likely root causes so teams can diagnose incidents faster.
+RootLens is a local-development observability and deterministic incident-
+diagnosis project for a small distributed Order and Inventory application. It
+turns correlated metrics, logs, and traces into evidence-backed root-cause
+reports, while keeping scenario ground truth and optional LLM prose outside the
+authoritative analysis boundary.
 
-## Planned architecture
+RootLens is an evaluation-oriented portfolio system, not a production incident
+platform. It does not provide authentication, deployment, broad real-world
+coverage, alerting, or automated remediation.
 
-RootLens is expected to include telemetry ingestion for logs, metrics, and traces; a shared correlation and storage layer; an analysis engine for detecting incidents and ranking likely causes; and APIs or interfaces for investigating the supporting evidence. The architecture will evolve milestone by milestone as the project validates each capability.
+## Key capabilities
 
-## Initial milestone roadmap
+- Three independently testable Python 3.12 FastAPI services: Inventory, Order,
+  and Diagnosis.
+- Separate PostgreSQL databases owned by Inventory and Order.
+- Request-ID and W3C trace propagation across Order, Inventory, and SQL calls.
+- Prometheus metrics, Loki logs through Grafana Alloy, OTLP traces through the
+  OpenTelemetry Collector to Jaeger, and provisioned Grafana dashboards.
+- Three repeatable controlled scenarios with independent ground truth.
+- A transparent deterministic engine with candidate scores, confidence,
+  telemetry coverage, normalized evidence, warnings, and recommended checks.
+- A safe Diagnosis API and responsive React/TypeScript investigation interface.
+- Offline template explanations plus an explicitly enabled OpenAI prose option;
+  neither can alter deterministic output.
+- A repeatable benchmark with ground-truth isolation, per-scenario accuracy,
+  confusion matrix, confidence/coverage aggregates, and atomic JSON/Markdown
+  reports.
+- Offline Python and frontend tests plus GitHub Actions validation for code,
+  formatting, builds, Compose, dashboard JSON, tracked artifacts, and dependency
+  consistency.
 
-1. Build a small inventory service that will later serve as a system under observation.
-2. Instrument the inventory service and establish collection of logs, metrics, and distributed traces.
-3. Generate repeatable controlled incidents with independent ground truth.
-4. Correlate telemetry and generate evidence-backed root-cause hypotheses.
-5. Provide an investigation experience for reviewing incidents and evidence.
+## Architecture
 
-Milestone 1 established Inventory Service health endpoints, request IDs,
-structured request logging, Prometheus-compatible application metrics, a local
-PostgreSQL foundation, and the first persistent inventory-item create/read API.
-Concurrency-safe stock reservation is also implemented with a PostgreSQL row
-lock to prevent overselling. A local Prometheus server now scrapes the service,
-and a provisioned Grafana dashboard visualizes its HTTP and reservation metrics.
-OpenTelemetry now traces HTTP requests and SQLAlchemy calls through a local
-OpenTelemetry Collector into Jaeger. Grafana Alloy tails the service's
-additional JSON-lines log file and sends those logs to Loki, while Grafana
-provides a provisioned log dashboard and trace links into Jaeger. Update,
-delete, restocking, reservation history, automated diagnosis, and an Order
-Service remained planned.
+```mermaid
+flowchart LR
+    Web["React web interface"] --> Diagnosis["Diagnosis Service"]
+    Scenario["Scenario runner"] --> Order["Order Service"]
+    Order --> Inventory["Inventory Service"]
+    Order --> OrderDB[("Order PostgreSQL")]
+    Inventory --> InventoryDB[("Inventory PostgreSQL")]
 
-Milestone 2 adds that independently deployable Order Service and the first real
-distributed path:
-
-```text
-Client -> Order Service -> Order PostgreSQL
-                       -> Inventory Service -> Inventory PostgreSQL
+    Order --> Telemetry["Metrics + logs + traces"]
+    Inventory --> Telemetry
+    Diagnosis --> Telemetry
+    Telemetry --> Prometheus
+    Telemetry --> Loki
+    Telemetry --> Jaeger
+    Prometheus --> Engine["Deterministic diagnosis engine"]
+    Loki --> Engine
+    Jaeger --> Engine
+    Scenario --> Incident["Incident report"]
+    Incident -->|"safe projection"| Engine
+    Engine --> Report["Diagnosis report"]
+    Report --> Diagnosis
+    Report --> Evaluator["Isolated evaluator"]
+    Incident -->|"ground truth after diagnosis"| Evaluator
 ```
 
-Order propagates the same request ID and W3C trace context to Inventory. Orders
-are stored in a database owned exclusively by Order. Each validated attempt is
-committed as `pending` before Inventory is called, then becomes `confirmed`,
-`rejected`, or `failed`. No transaction remains open during the HTTP call, and
-services never write each other's tables. If Inventory succeeds but Order
-cannot commit `confirmed`, the API returns a safe `503` and logs the
-consistency risk without calling Inventory again. `POST /orders` now accepts
-an optional `Idempotency-Key`: the pending-row commit atomically claims the
-key, and matching retries replay a stored confirmed, rejected, or failed
-result without reserving Inventory twice. A stable SHA-256 fingerprint of the
-normalized SKU and quantity rejects reuse of one key for different order
-data. Pending repeats return a retryable 409. Raw keys are neither logged nor
-used as metric or Loki labels.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for component responsibilities,
+data flow, observability, trust boundaries, and deterministic authority.
 
-Automatic retries remain intentionally absent; retry-safe callers must supply
-and reuse their own key. Permanently pending orders will be addressed by a
-later reconciliation milestone. Compensation, queues, payment processing, and
-automated diagnosis also remain future work.
+## Quick start
 
-Milestone 3 adds development-only Inventory reservation faults and a separate
-Python scenario runner. This creates repeatable baseline, latency, and
-unavailable traffic through Order with independent known ground truth. Fault
-injection is not diagnosis: the
-runner does not query telemetry or infer a cause. Inventory registers the
-hidden, loopback-only controls only when
-`ROOTLENS_FAULT_INJECTION_ENABLED=true`; the default is false. Control requests
-are excluded from normal telemetry, while affected business requests keep
-their logs, metrics, request/trace IDs, and distributed traces. Reports under
-`runtime/incidents` are ignored by Git and are outside the Alloy log mount, so
-they are not sent to Loki.
-
-The first Milestone 3 diagnosis engine is now a separate Python 3.12 CLI under
-`tools/diagnosis_engine`. It queries fixed RootLens Prometheus metrics,
-correlated Loki JSON events, and exact Jaeger v3 traces over one normalized
-incident window. Transparent deterministic rules score `none`,
-`inventory_reservation_latency`, and `inventory_service_unavailable`, falling
-back to `unknown` for weak or conflicting evidence. A strict safe-context
-projection prevents scenario names, IDs, expected answers, symptoms, target
-service, and filenames from reaching analysis. The separate evaluator reads
-ground truth only after diagnosis. Generated diagnosis and evaluation reports
-under `runtime/diagnoses` are ignored by Git.
-
-Milestone 3 now also includes an optional explanation layer for an already
-generated diagnosis. The deterministic engine remains authoritative: neither
-the template provider nor the optional OpenAI provider can select or change the
-root cause, affected service, confidence, candidate scores, coverage, evidence,
-or outcome. Application code copies protected fields into the explanation and
-validates every evidence citation. Providers receive only a typed projection of
-normalized diagnosis data—never scenario ground truth, incident files, or raw
-telemetry responses. Template mode is the offline default; OpenAI use requires
-an explicit provider selection, enable flag, API key, optional dependency, and
-one stateless Structured Outputs request. Explanation and validation JSON under
-`runtime/explanations` is local runtime output and is ignored by Git.
-
-Milestone 3 now also exposes those artifacts through a separate Diagnosis
-Service on port `8002`. The FastAPI service imports the deterministic engine
-directly, reuses application-scoped telemetry clients, and preserves its atomic
-reports. API clients use strict report IDs instead of local paths; resolved
-roots and allowlist projections prevent traversal and keep scenario evaluation
-ground truth out of normal API responses. The CLI remains useful for direct
-local and evaluation workflows.
-
-Milestone 3 now includes a polished local-development web interface under
-`apps/web`. The React and TypeScript application consumes only the Diagnosis
-Service's ground-truth-safe HTTP API. It provides responsive overview,
-incident, diagnosis, evidence, explanation, and validation views without
-reading report files, accessing databases, querying telemetry systems, or
-calling OpenAI from the browser. Vite's local `/api` proxy connects port `5173`
-to the Diagnosis Service on port `8002` without adding CORS behavior to the
-backend. Deterministic diagnoses remain authoritative; explanations remain
-constrained narratives over completed reports.
-
-## Local observability quick start
-
-Prometheus collects measurements exposed by all three host services at
-`GET /metrics`. Grafana displays business telemetry in **RootLens Distributed
-Services Overview** and API telemetry in **RootLens Diagnosis Service
-Overview**. OpenTelemetry records Order HTTP client, Inventory request,
-Diagnosis API and telemetry-client, and database spans; the Collector forwards
-them and Jaeger displays the traces.
-Centralized logging makes application events queryable instead of leaving them
-only in Terminal scrollback. Each service writes structured JSON to its
-Terminal and its own file under `runtime/logs`; Alloy tails all three files, and
-Loki stores the original JSON lines. Grafana loads Inventory-specific and
-distributed log dashboards. Both Python business services run directly on the
-developer's Mac; two independent PostgreSQL containers, Prometheus, Loki,
-Alloy, Grafana, the Collector, and Jaeger run in Docker.
-
-Copy the local-development environment example, start the Compose services,
-apply both service migrations, and run Inventory on all host interfaces:
+Use Python 3.12, Node.js 22, and Docker Compose. Create a private local
+environment file from the example, start infrastructure, and install all local
+Python packages:
 
 ```bash
 cp .env.example .env
 docker compose up -d
+python3.12 -m pip install \
+  -e 'tools/scenario_runner[dev]' \
+  -e 'tools/diagnosis_engine[dev]' \
+  -e 'tools/benchmark_runner[dev]' \
+  -e 'services/inventory[dev]' \
+  -e 'services/order[dev]' \
+  -e 'services/diagnosis[dev]'
+```
+
+Load `.env`, apply the two existing migrations, then run each FastAPI service in
+its own terminal:
+
+```bash
 set -a
 source .env
 set +a
@@ -138,21 +92,17 @@ uvicorn --app-dir services/inventory/src inventory_service.main:app \
   --reload --host 0.0.0.0 --port 8000 --env-file .env
 ```
 
-In a second terminal:
-
 ```bash
 uvicorn --app-dir services/order/src order_service.main:app \
   --reload --host 0.0.0.0 --port 8001 --env-file .env
 ```
-
-In a third terminal:
 
 ```bash
 uvicorn --app-dir services/diagnosis/src diagnosis_service.main:app \
   --reload --host 0.0.0.0 --port 8002 --env-file .env
 ```
 
-Install the locked web dependencies once and start Vite in a fourth terminal:
+Start the frontend:
 
 ```bash
 cd apps/web
@@ -160,66 +110,111 @@ npm ci
 npm run dev
 ```
 
-Open <http://localhost:5173>. Generate an incident with
-`rootlens-scenario run baseline`, open **Incidents**, run its diagnosis, then
-generate and validate a template explanation. OpenAI explanations must be
-enabled only in the private backend environment; the API key never enters the
-browser. See the web README for the full workflow and frontend quality checks.
+Open <http://localhost:5173>. Follow [docs/DEMO.md](docs/DEMO.md) for a concise
+inventory-unavailable walkthrough, evidence review, explanation validation,
+Grafana/Jaeger inspection, benchmark, and safe shutdown.
 
-Binding Uvicorn to `0.0.0.0` is required because Prometheus reaches the Mac
-host from its container through `host.docker.internal` on ports `8000`, `8001`,
-and `8002`; binding only to `127.0.0.1` would accept requests solely from the Mac's
-own loopback interface.
-Docker Desktop supplies `host.docker.internal` as the container-to-host DNS
-name, and the Compose `host-gateway` mapping improves portability on compatible
-Docker engines.
+## Supported incident catalog
 
-Open the Prometheus targets page at <http://127.0.0.1:9090/targets> and confirm
-that `inventory-service`, `order-service`, and `diagnosis-service` are `UP`.
-Open Grafana at
-<http://127.0.0.1:3000>, sign
-in with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`, then open
-**Dashboards > RootLens > RootLens Distributed Services Overview**. The defaults in
-`.env.example` are convenient local-development credentials and are not safe
-for production. Open Jaeger at <http://127.0.0.1:16686> and select
-`rootlens-order` after creating an order. Both services export OTLP/gRPC to the
-Collector on `localhost:4317`; neither exports directly to Jaeger.
-Open Grafana Explore, select **Loki**, and run
-`{service=~"inventory|order"} | json` to inspect both services. Add
-`| request_id="..."` after `| json` to follow one distributed operation.
-Alloy's debugging UI is at <http://127.0.0.1:12345>, and Loki readiness is
-available at <http://127.0.0.1:3100/ready>.
+| Scenario | Deterministic expected root cause |
+| --- | --- |
+| `baseline` | `none` |
+| `inventory-latency` | `inventory_reservation_latency` |
+| `inventory-unavailable` | `inventory_service_unavailable` |
 
-Order exposes unchanged liveness at `GET /health`, database readiness at
-`GET /health/ready`, deterministic history at `GET /orders`, and individual
-records at `GET /orders/{order_id}`. The Inventory database and schema remain
-unchanged.
+No other scenario or incident rule is currently supported. `unknown` is the
+safe fallback for missing, weak, or conflicting evidence.
 
-Order migration `0002` adds the nullable paired idempotency fields, fingerprint
-format constraint, and partial unique key index. Apply it after loading `.env`:
+## Evaluation
+
+The live benchmark defaults to three repetitions of all supported scenarios,
+10 requests per run, concurrency 5, a 1500 ms latency fault, and a 15-second
+telemetry-settle interval:
 
 ```bash
-alembic -c services/order/alembic.ini upgrade head
+rootlens-benchmark run
+rootlens-benchmark summarize runtime/benchmarks/BENCHMARK_ID.json
 ```
 
-See the Order README for first-request, replay, payload-conflict, concurrency,
-stock-verification, logs, metrics, and trace examples.
+A passing run requires at least one completed evaluation for every configured
+scenario, valid evaluation for every completed diagnosis, usable telemetry, and
+100% exact-match accuracy. This result measures only the small controlled
+catalog and should not be generalized. See
+[docs/EVALUATION.md](docs/EVALUATION.md) for methodology, isolation, confidence,
+coverage, and limitations. Synthetic schema-preserving reports are in
+[docs/examples](docs/examples/README.md).
 
-See [observability/README.md](observability/README.md) for configuration details,
-sample-traffic commands, verification steps, and safe shutdown guidance. See
-[services/inventory/README.md](services/inventory/README.md) for the Inventory
-Service API and development workflow.
-See [services/order/README.md](services/order/README.md) for Order Service and
-the distributed request workflow.
-See [services/diagnosis/README.md](services/diagnosis/README.md) for ID-safe API
-installation, curl workflows, explanations, validation, and observability.
-See [apps/web/README.md](apps/web/README.md) for the browser workflow, Vite proxy,
-frontend installation, safe OpenAI boundary, tests, lint, type checking, and
-production build commands.
-See [tools/scenario_runner/README.md](tools/scenario_runner/README.md) for local
-fault-safety boundaries, installation, scenario commands, reports, and
-telemetry inspection.
-See [tools/diagnosis_engine/README.md](tools/diagnosis_engine/README.md) for
-telemetry-correlation design, installation, analysis, evaluation, evidence
-inspection, safe template and OpenAI explanations, offline validation,
-partial-source behavior, and current limitations.
+## Screenshots
+
+Screenshots are intentionally left as project-maintainer placeholders so no
+private local data or credentials are committed.
+
+- _Placeholder: system overview and recent incidents_
+- _Placeholder: deterministic diagnosis with grouped evidence_
+- _Placeholder: validated template explanation_
+- _Placeholder: Grafana dashboard and Jaeger trace_
+
+## Tests and CI
+
+Install development dependencies as shown in Quick start. All normal tests use
+fakes or in-process clients and require no Docker services, databases,
+telemetry systems, developer runtime reports, or OpenAI access.
+
+```bash
+python3.12 -m pytest
+python3.12 -m ruff check services tools test_support
+python3.12 -m ruff format --check services tools test_support
+```
+
+```bash
+cd apps/web
+npm ci
+npm run test:run
+npm run lint
+npm run format:check
+npm run typecheck
+npm run build
+npm audit --json
+```
+
+Validate tracked configuration without starting the stack:
+
+```bash
+docker compose config --quiet
+find observability/grafana/dashboards -name '*.json' -exec python3.12 -m json.tool {} \; >/dev/null
+```
+
+GitHub Actions runs separate Python 3.12, Node 22 frontend, and configuration
+jobs on pull requests and pushes to `main`. CI forces template explanations,
+removes the OpenAI key, and never runs the live benchmark.
+
+## Documentation
+
+- [Web interface](apps/web/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Evaluation](docs/EVALUATION.md)
+- [Recruiter/demo workflow](docs/DEMO.md)
+- [Inventory Service](services/inventory/README.md)
+- [Order Service](services/order/README.md)
+- [Diagnosis Service](services/diagnosis/README.md)
+- [Scenario runner](tools/scenario_runner/README.md)
+- [Diagnosis engine](tools/diagnosis_engine/README.md)
+- [Benchmark runner](tools/benchmark_runner/README.md)
+- [Observability stack](observability/README.md)
+
+## Technology stack
+
+Python 3.12, FastAPI, Pydantic, SQLAlchemy, asyncpg, Alembic, HTTPX,
+PostgreSQL 17, OpenTelemetry, Prometheus, Grafana, Loki, Alloy, Jaeger, React
+18, TypeScript, Vite, Vitest, ESLint, Prettier, pytest, Ruff, Docker Compose,
+and GitHub Actions.
+
+## Current limitations
+
+RootLens covers one local topology and three controlled cases. Fault injection
+is development-only. Telemetry stores use local settings, Jaeger is not durable,
+Loki and Grafana have no production security posture, and reports are local
+files rather than a multi-user system. There is no authentication,
+authorization, deployment, alerting, incident discovery, compensation,
+reconciliation, autonomous action, or automated remediation. Optional OpenAI
+use affects prose only and requires private explicit configuration.

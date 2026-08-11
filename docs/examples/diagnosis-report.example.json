@@ -1,0 +1,75 @@
+{
+  "affected_service": "inventory",
+  "alternative_causes": [
+    "none"
+  ],
+  "analyzed_window": {
+    "end": "2026-08-11T12:00:17Z",
+    "start": "2026-08-11T11:59:45Z"
+  },
+  "candidate_scores": {
+    "inventory_reservation_latency": {
+      "contradicting_evidence": [
+        "logs:order_creation_failed"
+      ],
+      "score": 0.0,
+      "supporting_evidence": []
+    },
+    "inventory_service_unavailable": {
+      "contradicting_evidence": [],
+      "score": 0.8,
+      "supporting_evidence": [
+        "logs:inventory_unavailable",
+        "metrics:high_order_503_ratio"
+      ]
+    },
+    "none": {
+      "contradicting_evidence": [
+        "logs:order_creation_failed"
+      ],
+      "score": 0.0,
+      "supporting_evidence": []
+    },
+    "unknown": {
+      "contradicting_evidence": [],
+      "score": 0.0,
+      "supporting_evidence": []
+    }
+  },
+  "confidence": 0.72,
+  "confidence_level": "medium",
+  "diagnosis_id": "example-diagnosis-001",
+  "evidence": [
+    {
+      "observation": "Found 4 correlated events with safe reason inventory_unavailable",
+      "reference": "inventory_unavailable",
+      "service": "order",
+      "severity": "supporting",
+      "signal": "reason_inventory_unavailable",
+      "source": "logs",
+      "unit": "events",
+      "value": 4.0
+    }
+  ],
+  "generated_at": "2026-08-11T12:00:20Z",
+  "input_context": {
+    "request_id_count": 4,
+    "total_requests": 4,
+    "trace_id_count": 2
+  },
+  "recommended_checks": [
+    "Verify Inventory readiness and service-up metrics.",
+    "Inspect Inventory 5xx metrics and correlated 503 completion logs."
+  ],
+  "schema_version": "1.0",
+  "summary": "Inventory unavailability is producing downstream Order failures.",
+  "suspected_root_cause": "inventory_service_unavailable",
+  "telemetry_coverage": {
+    "logs": "available",
+    "metrics": "available",
+    "traces": "partial"
+  },
+  "warnings": [
+    "Example trace coverage is intentionally partial."
+  ]
+}

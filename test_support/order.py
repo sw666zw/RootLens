@@ -17,8 +17,7 @@ from order_service.api.orders import get_order_repository
 from order_service.config import Settings
 from order_service.database import get_database_session
 from order_service.main import create_app
-from order_service.repositories.orders import OrdersRepository
-from order_service.repositories.orders import PendingOrderClaim
+from order_service.repositories.orders import OrdersRepository, PendingOrderClaim
 from order_service.tracing import TracingConfiguration
 
 Handler = Callable[[httpx.Request], httpx.Response]

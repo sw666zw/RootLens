@@ -3,12 +3,17 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rootlens-scenario-runner"
+name = "rootlens-benchmark-runner"
 version = "0.1.0"
-description = "Repeatable local incident scenarios for RootLens"
+description = "Repeatable evaluation runner for RootLens deterministic diagnosis"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["httpx>=0.27,<1.0"]
+dependencies = [
+    "httpx>=0.27,<1.0",
+    "pydantic>=2.7,<3.0",
+    "rootlens-diagnosis-engine==0.1.0",
+    "rootlens-scenario-runner==0.1.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -18,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-rootlens-scenario = "rootlens_scenarios.cli:main"
+rootlens-benchmark = "rootlens_benchmark.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -26,7 +31,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra --import-mode=importlib"
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = ["src", "../scenario_runner/src", "../diagnosis_engine/src"]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -1,8 +1,13 @@
 """Isolated Diagnosis Service fixtures."""
 
 import json
+import os
 from datetime import timedelta
 from pathlib import Path
+
+os.environ["ROOTLENS_EXPLANATION_PROVIDER"] = "template"
+os.environ["ROOTLENS_LLM_ENABLED"] = "false"
+os.environ.pop("OPENAI_API_KEY", None)
 
 import pytest
 from fastapi.testclient import TestClient
