@@ -45,6 +45,7 @@ jobs:
             -e 'services/inventory[dev]' \
             -e 'services/order[dev]' \
             -e 'services/diagnosis[dev]'
+          python -m pip install 'ruff==0.15.22'
       - name: Validate Python dependency consistency
         run: python -m pip check
       - name: Run complete Python test suite

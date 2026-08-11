@@ -1,0 +1,14 @@
+line-length = 88
+target-version = "py312"
+src = [
+    "services/diagnosis/src",
+    "services/inventory/src",
+    "services/order/src",
+    "tools/benchmark_runner/src",
+    "tools/diagnosis_engine/src",
+    "tools/scenario_runner/src",
+    "test_support",
+]
+
+[lint]
+select = ["E", "F", "I", "UP"]
