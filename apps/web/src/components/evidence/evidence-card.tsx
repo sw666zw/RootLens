@@ -15,32 +15,38 @@ export function EvidenceCard({
   const id = "evidence_id" in evidence ? evidence.evidence_id : null;
   const reference = "reference" in evidence ? evidence.reference : null;
   return (
-    <article className="evidence-card" id={id ?? undefined}>
+    <article
+      className={`evidence-card evidence-${evidence.severity}`}
+      id={id ?? undefined}
+    >
       <header>
         <div>
-          {id && <span className="evidence-id">{id}</span>}
+          <span className="evidence-source">{evidence.source}</span>
           <h4>{evidence.signal}</h4>
         </div>
         <StatusBadge tone={severityTone[evidence.severity]}>
           {evidence.severity}
         </StatusBadge>
       </header>
-      <p>{evidence.observation}</p>
+      <div className="evidence-observation">
+        <span>Observation</span>
+        <p>{evidence.observation}</p>
+      </div>
       <dl className="compact-details">
         <div>
           <dt>Service</dt>
           <dd>{evidence.service ?? "Not specified"}</dd>
         </div>
         <div>
-          <dt>Value</dt>
+          <dt>Recorded value</dt>
           <dd>
             {evidence.value ?? "—"} {evidence.unit ?? ""}
           </dd>
         </div>
-        {reference && (
+        {(reference || id) && (
           <div>
-            <dt>Safe reference</dt>
-            <dd>{reference}</dd>
+            <dt>Reference</dt>
+            <dd className="evidence-id">{reference ?? id}</dd>
           </div>
         )}
       </dl>

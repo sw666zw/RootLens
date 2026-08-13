@@ -44,9 +44,13 @@ describe("application routes and dashboard", () => {
     vi.stubGlobal("fetch", vi.fn(defaultFetch));
     renderPath("/");
     expect(
-      screen.getByRole("heading", { name: "System overview" }),
+      screen.getByRole("heading", { name: "Incident Intelligence" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Healthy", { selector: ".metric-card strong" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Service operational")).toBeInTheDocument();
+    expect(screen.getByText("2 succeeded")).toBeInTheDocument();
   });
 
   it("keeps dashboard sections independent when one endpoint fails", async () => {
@@ -105,6 +109,22 @@ describe("application routes and dashboard", () => {
 });
 
 describe("incidents", () => {
+  it("describes successful requests without inferring incident health", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          response([
+            { ...incidentSummary, scenario_name: "inventory-latency" },
+          ]),
+        ),
+      ),
+    );
+    renderPath("/incidents");
+    expect(await screen.findByText("Requests succeeded")).toBeInTheDocument();
+    expect(screen.queryByText("All successful")).not.toBeInTheDocument();
+  });
+
   it("does not expose ground-truth fields from an incident list response", async () => {
     vi.stubGlobal(
       "fetch",
@@ -206,6 +226,45 @@ describe("diagnoses and explanations", () => {
     expect(screen.getByText(unsafe)).toBeInTheDocument();
     expect(document.querySelector("img")).toBeNull();
     expect(screen.getByText("partial")).toBeInTheDocument();
+    expect(
+      screen.getByText("86%", { selector: ".confidence-value" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("0.86", { exact: false }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("highlights the deterministic root cause instead of the first candidate", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          response({
+            ...diagnosisDetail,
+            suspected_root_cause: "inventory_service_unavailable",
+            affected_service: "inventory",
+            candidate_scores: {
+              none: {
+                score: 0,
+                supporting_evidence: [],
+                contradicting_evidence: ["order_success_ratio"],
+              },
+              inventory_service_unavailable: {
+                score: 0.86,
+                supporting_evidence: ["order_success_ratio"],
+                contradicting_evidence: [],
+              },
+            },
+          }),
+        ),
+      ),
+    );
+    renderPath(`/diagnoses/${diagnosisSummary.diagnosis_id}`);
+    await screen.findByRole("heading", { name: "Candidate scores" });
+    const candidates = document.querySelectorAll(".candidate-grid article");
+    expect(candidates[0]).not.toHaveClass("candidate-winning");
+    expect(candidates[1]).toHaveClass("candidate-winning");
+    expect(candidates[0]).toHaveTextContent("0%");
   });
 
   it("defaults explanation generation to template", async () => {
@@ -294,6 +353,32 @@ describe("diagnoses and explanations", () => {
       "#evidence-001",
     );
     expect(document.querySelector("script")).toBeNull();
+  });
+
+  it("orders stronger evidence before informational evidence", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          response({
+            ...explanationDetail,
+            evidence_index: [
+              {
+                ...explanationDetail.evidence_index[0],
+                evidence_id: "evidence-info",
+                severity: "informational",
+              },
+              explanationDetail.evidence_index[0],
+            ],
+          }),
+        ),
+      ),
+    );
+    renderPath(`/explanations/${explanationSummary.explanation_id}`);
+    await screen.findByRole("heading", { name: "Evidence index" });
+    const evidenceCards = document.querySelectorAll(".evidence-card");
+    expect(evidenceCards[0]).toHaveAttribute("id", "evidence-001");
+    expect(evidenceCards[1]).toHaveAttribute("id", "evidence-info");
   });
 
   it.each([

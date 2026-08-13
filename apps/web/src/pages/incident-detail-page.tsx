@@ -47,9 +47,9 @@ export function IncidentDetailPage() {
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Incident detail"
-        title="Incident investigation"
-        description="A ground-truth-safe projection supplied by the Diagnosis Service."
+        eyebrow="Incident case file"
+        title="Incident"
+        description="Observed request behavior and telemetry identifiers for a single scenario run."
       />
       {state.loading && !state.data ? (
         <LoadingState label="Loading incident" />
@@ -59,63 +59,57 @@ export function IncidentDetailPage() {
       ) : null}
       {state.data ? (
         <>
-          <section className="panel hero-panel">
+          <section className="panel case-file-hero">
             <div>
-              <p className="eyebrow">Scenario ID</p>
+              <p className="eyebrow">Scenario record</p>
+              <h2>Operational case file</h2>
               <Identifier value={state.data.scenario_id} label="scenario ID" />
+              <p className="case-file-date">
+                Opened <LocalDate value={state.data.started_at} />
+              </p>
             </div>
             <StatusBadge
-              tone={state.data.failed_requests ? "warning" : "success"}
+              tone={state.data.failed_requests ? "danger" : "success"}
             >
               {state.data.failed_requests
                 ? "Failures observed"
                 : "Completed successfully"}
             </StatusBadge>
           </section>
-          <section className="detail-grid panel">
-            <dl className="detail-list">
+          <section className="panel incident-summary">
+            <div className="section-heading">
               <div>
-                <dt>Started</dt>
-                <dd>
-                  <LocalDate value={state.data.started_at} />
-                </dd>
+                <p className="eyebrow">Observed window</p>
+                <h2>Summary statistics</h2>
               </div>
-              <div>
-                <dt>Ended</dt>
-                <dd>
-                  <LocalDate value={state.data.ended_at} />
-                </dd>
-              </div>
+              <span className="section-period">
+                <LocalDate value={state.data.started_at} />
+                <span aria-hidden="true"> — </span>
+                <LocalDate value={state.data.ended_at} />
+              </span>
+            </div>
+            <dl className="stat-strip">
               <div>
                 <dt>Total requests</dt>
                 <dd>{state.data.total_requests}</dd>
+              </div>
+              <div className="stat-success">
+                <dt>Successful</dt>
+                <dd>{state.data.successful_requests}</dd>
+              </div>
+              <div className="stat-danger">
+                <dt>Failed</dt>
+                <dd>{state.data.failed_requests}</dd>
               </div>
               <div>
                 <dt>Concurrency</dt>
                 <dd>{state.data.concurrency}</dd>
               </div>
-              <div>
-                <dt>Successful</dt>
-                <dd>{state.data.successful_requests}</dd>
-              </div>
-              <div>
-                <dt>Failed</dt>
-                <dd>{state.data.failed_requests}</dd>
-              </div>
-              <div>
-                <dt>Request IDs captured</dt>
-                <dd>{state.data.request_id_count}</dd>
-              </div>
-              <div>
-                <dt>Trace IDs captured</dt>
-                <dd>{state.data.trace_id_count}</dd>
-              </div>
-              <div>
-                <dt>Inventory SKU</dt>
-                <dd>{state.data.inventory_sku ?? "Not supplied"}</dd>
-              </div>
             </dl>
-            <div>
+          </section>
+          <div className="two-column incident-record-grid">
+            <section className="panel request-outcomes">
+              <p className="eyebrow">Response profile</p>
               <h2>HTTP status summary</h2>
               <ul className="status-counts">
                 {Object.entries(state.data.response_status_counts).map(
@@ -127,9 +121,27 @@ export function IncidentDetailPage() {
                   ),
                 )}
               </ul>
-            </div>
-          </section>
-          <section className="panel action-panel">
+            </section>
+            <section className="panel capture-context">
+              <p className="eyebrow">Correlation context</p>
+              <h2>Captured identifiers</h2>
+              <dl className="detail-list">
+                <div>
+                  <dt>Request IDs captured</dt>
+                  <dd>{state.data.request_id_count}</dd>
+                </div>
+                <div>
+                  <dt>Trace IDs captured</dt>
+                  <dd>{state.data.trace_id_count}</dd>
+                </div>
+                <div>
+                  <dt>Inventory SKU</dt>
+                  <dd>{state.data.inventory_sku ?? "Not supplied"}</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+          <section className="panel action-panel incident-diagnosis-action">
             <div>
               <p className="eyebrow">Deterministic analysis</p>
               <h2>Run diagnosis</h2>

@@ -92,12 +92,15 @@ export function DiagnosesPage() {
           {filtered.map((diagnosis) => (
             <article className="panel report-card" key={diagnosis.diagnosis_id}>
               <header>
-                <RootCauseBadge cause={diagnosis.suspected_root_cause} />
+                <div className="report-title diagnosis-conclusion">
+                  <span className="report-label">Suspected root cause</span>
+                  <RootCauseBadge cause={diagnosis.suspected_root_cause} />
+                </div>
                 <LocalDate value={diagnosis.generated_at} />
               </header>
               <Identifier value={diagnosis.diagnosis_id} label="diagnosis ID" />
-              <div className="report-grid">
-                <div>
+              <div className="report-grid diagnosis-report-grid">
+                <div className="affected-service-fact">
                   <span>Affected service</span>
                   <strong>
                     {diagnosis.affected_service ?? "Not identified"}

@@ -13,8 +13,11 @@ export function ConfidenceMeter({
   return (
     <div className="confidence-meter">
       <div className="confidence-label">
-        <span>{level} confidence</span>
-        <strong>{percent}%</strong>
+        <span>Confidence</span>
+        <strong>
+          <span className="confidence-value">{percent}%</span>
+          <span className="confidence-detail">· {level}</span>
+        </strong>
       </div>
       <div
         className="meter-track"
