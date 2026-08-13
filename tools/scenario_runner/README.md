@@ -1,8 +1,8 @@
 # RootLens scenario runner
 
 The scenario runner is a Python 3.12 local-development tool that produces
-repeatable business traffic for controlled incidents. RootLens needs these
-known outcomes so a later diagnosis engine can be evaluated against independent
+repeatable business traffic for controlled incidents. RootLens uses these known
+outcomes to evaluate the deterministic diagnosis engine against independent
 ground truth. Fault injection creates the condition; it does not detect,
 query, correlate, or diagnose it. The runner never queries Prometheus, Loki,
 Grafana, or Jaeger and has no web server or database.
@@ -119,5 +119,5 @@ status/latency while Jaeger shows the Order-to-Inventory path. The control calls
 themselves will not appear because they are deliberately excluded.
 
 Stopping a real database remains a separate manual outage exercise; the runner
-does not stop or restart Docker. Automated diagnosis is the next major
-milestone.
+does not stop or restart Docker. Diagnosis is performed separately by the
+diagnosis engine, Diagnosis Service, or benchmark runner.

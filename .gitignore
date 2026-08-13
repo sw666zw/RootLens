@@ -76,5 +76,6 @@ runtime/benchmarks/*
 node_modules/
 apps/web/dist/
 apps/web/coverage/
+*.tsbuildinfo
 apps/web/.env.local
 apps/web/.env.*.local

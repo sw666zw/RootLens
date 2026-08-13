@@ -1,7 +1,7 @@
 # RootLens Inventory Service
 
-The Inventory Service provides a small system that RootLens can eventually
-observe and diagnose. It includes liveness and database-readiness endpoints,
+The Inventory Service provides the stock-management boundary that RootLens
+observes and diagnoses. It includes liveness and database-readiness endpoints,
 request IDs, structured request logging, and basic create/read operations for
 persistent inventory items. It can also reserve stock atomically by subtracting
 a requested quantity from an item's on-hand quantity. Prometheus-compatible
@@ -22,8 +22,8 @@ Inventory Service.
 
 ## Development-only reservation faults
 
-Controlled incidents give the future RootLens diagnosis engine repeatable
-evaluation inputs. They do not perform diagnosis. Fault injection is disabled
+Controlled incidents give the RootLens diagnosis engine repeatable evaluation
+inputs. They do not perform diagnosis. Fault injection is disabled
 by default and normal startup creates no controller, file, or persistent state.
 For local scenario work only, add this to the private `.env`:
 
