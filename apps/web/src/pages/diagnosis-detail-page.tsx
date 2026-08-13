@@ -1,8 +1,8 @@
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, Fragment, useCallback, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { safeErrorMessage } from "../api/errors";
-import type { EvidenceSource } from "../api/types";
+import type { EvidenceSeverity, EvidenceSource } from "../api/types";
 import { ConfirmedActionButton } from "../components/confirmed-action-button";
 import { EvidenceCard } from "../components/evidence/evidence-card";
 import { Identifier, LocalDate } from "../components/identifiers";
@@ -17,6 +17,21 @@ import {
 } from "../components/status/states";
 import { TelemetryCoverage } from "../components/status/telemetry-coverage";
 import { useApi } from "../hooks/use-api";
+
+const evidencePriority: Record<EvidenceSeverity, number> = {
+  supporting: 0,
+  contradicting: 1,
+  informational: 2,
+};
+
+function orderEvidenceBySeverity<T extends { severity: EvidenceSeverity }>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort(
+    (left, right) =>
+      evidencePriority[left.severity] - evidencePriority[right.severity],
+  );
+}
 
 export function DiagnosisDetailPage() {
   const { diagnosisId = "" } = useParams();
@@ -74,27 +89,48 @@ export function DiagnosisDetailPage() {
       {state.data ? (
         <>
           <section className="panel diagnosis-hero">
-            <div>
-              <p className="eyebrow">Suspected root cause</p>
-              <h2>
-                <RootCauseBadge cause={state.data.suspected_root_cause} />
+            <div className="diagnosis-verdict">
+              <p className="eyebrow">Root cause</p>
+              <h2 className="root-cause-title">
+                {state.data.suspected_root_cause
+                  .split("_")
+                  .map((part, index) => (
+                    <Fragment key={`${part}-${index}`}>
+                      {index > 0 && (
+                        <>
+                          _<wbr />
+                        </>
+                      )}
+                      {part}
+                    </Fragment>
+                  ))}
               </h2>
               <p>{state.data.summary}</p>
             </div>
-            <div>
-              <Identifier
-                value={state.data.diagnosis_id}
-                label="diagnosis ID"
-              />
-              <LocalDate value={state.data.generated_at} />
-              <ConfidenceMeter
-                value={state.data.confidence}
-                level={state.data.confidence_level}
-              />
+            <div className="diagnosis-key-facts">
+              <div className="key-fact">
+                <span>Affected service</span>
+                <strong>
+                  {state.data.affected_service ?? "Not identified"}
+                </strong>
+              </div>
+              <div className="key-fact">
+                <ConfidenceMeter
+                  value={state.data.confidence}
+                  level={state.data.confidence_level}
+                />
+              </div>
+              <div className="report-record">
+                <Identifier
+                  value={state.data.diagnosis_id}
+                  label="diagnosis ID"
+                />
+                <LocalDate value={state.data.generated_at} />
+              </div>
             </div>
           </section>
           <div className="two-column">
-            <section className="panel">
+            <section className="panel analysis-context-panel">
               <h2>Analysis context</h2>
               <dl className="detail-list">
                 <div>
@@ -127,7 +163,7 @@ export function DiagnosisDetailPage() {
                 </div>
               </dl>
             </section>
-            <section className="panel">
+            <section className="panel telemetry-report-panel">
               <h2>Telemetry coverage</h2>
               <TelemetryCoverage coverage={state.data.telemetry_coverage} />
               {state.data.warnings.length ? (
@@ -140,16 +176,29 @@ export function DiagnosisDetailPage() {
                   </ul>
                 </>
               ) : (
-                <p className="muted">No diagnosis warnings.</p>
+                <p className="no-warnings">No warnings</p>
               )}
             </section>
           </div>
-          <section className="panel">
-            <h2>Candidate scores</h2>
+          <section className="panel comparison-section">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Hypothesis comparison</p>
+                <h2>Candidate scores</h2>
+              </div>
+              <p>Relative fit against the normalized evidence set.</p>
+            </div>
             <div className="candidate-grid">
               {Object.entries(state.data.candidate_scores).map(
                 ([cause, candidate]) => (
-                  <article key={cause}>
+                  <article
+                    key={cause}
+                    className={
+                      cause === state.data!.suspected_root_cause
+                        ? "candidate-winning"
+                        : undefined
+                    }
+                  >
                     <header>
                       <strong>{formatRootCause(cause)}</strong>
                       <span>{Math.round(candidate.score * 100)}%</span>
@@ -169,16 +218,27 @@ export function DiagnosisDetailPage() {
               )}
             </div>
           </section>
-          <section className="panel">
-            <h2>Normalized evidence</h2>
+          <section className="panel evidence-report">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Evidence ledger</p>
+                <h2>Normalized evidence</h2>
+              </div>
+              <p>Supporting, contradicting, and informational observations.</p>
+            </div>
             {(["metrics", "logs", "traces"] as EvidenceSource[]).map(
               (source) => {
-                const items = state.data!.evidence.filter(
-                  (item) => item.source === source,
+                const items = orderEvidenceBySeverity(
+                  state.data!.evidence.filter((item) => item.source === source),
                 );
                 return (
                   <section className="evidence-group" key={source}>
-                    <h3>{source}</h3>
+                    <div className="evidence-group-heading">
+                      <h3>{source}</h3>
+                      <span>
+                        {items.length} {items.length === 1 ? "item" : "items"}
+                      </span>
+                    </div>
                     {items.length ? (
                       <div className="evidence-grid">
                         {items.map((item, index) => (
@@ -213,9 +273,9 @@ export function DiagnosisDetailPage() {
                 </p>
               )}
             </section>
-            <section className="panel">
+            <section className="panel operator-report">
               <h2>Recommended checks</h2>
-              <ol>
+              <ol className="operator-checks">
                 {state.data.recommended_checks.map((check) => (
                   <li key={check}>{check}</li>
                 ))}

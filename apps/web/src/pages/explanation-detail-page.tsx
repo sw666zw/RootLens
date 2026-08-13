@@ -2,7 +2,11 @@ import { FormEvent, useCallback, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import { safeErrorMessage } from "../api/errors";
-import type { ValidationResponse, ValidationSummary } from "../api/types";
+import type {
+  EvidenceSeverity,
+  ValidationResponse,
+  ValidationSummary,
+} from "../api/types";
 import { ConfirmedActionButton } from "../components/confirmed-action-button";
 import { EvidenceCard } from "../components/evidence/evidence-card";
 import { Identifier, LocalDate } from "../components/identifiers";
@@ -17,6 +21,21 @@ import {
 import { StatusBadge } from "../components/status/status-badge";
 import { TelemetryCoverage } from "../components/status/telemetry-coverage";
 import { useApi } from "../hooks/use-api";
+
+const evidencePriority: Record<EvidenceSeverity, number> = {
+  supporting: 0,
+  contradicting: 1,
+  informational: 2,
+};
+
+function orderEvidenceBySeverity<T extends { severity: EvidenceSeverity }>(
+  items: readonly T[],
+): T[] {
+  return [...items].sort(
+    (left, right) =>
+      evidencePriority[left.severity] - evidencePriority[right.severity],
+  );
+}
 
 const checks: Array<[keyof ValidationSummary, string]> = [
   ["protected_fields_match", "Protected deterministic fields match"],
@@ -100,7 +119,7 @@ export function ExplanationDetailPage() {
       <PageHeader
         eyebrow="Operator narrative"
         title="Explanation detail"
-        description="Untrusted narrative text is displayed as plain text and remains subordinate to the deterministic diagnosis."
+        description="Evidence-grounded narrative constrained by the authoritative deterministic diagnosis."
       />
       {(location.state as { notice?: string } | null)?.notice && (
         <Notification tone="success">
@@ -115,74 +134,102 @@ export function ExplanationDetailPage() {
       ) : null}
       {state.data ? (
         <>
-          <section className="panel explanation-hero">
-            <div>
-              <div className="badge-row">
-                <StatusBadge
-                  tone={
-                    state.data.provider_status === "completed"
-                      ? "success"
-                      : "warning"
-                  }
-                >
-                  {state.data.provider} · {state.data.provider_status}
-                </StatusBadge>
-                {state.data.model && (
-                  <StatusBadge>{state.data.model}</StatusBadge>
-                )}
-              </div>
+          <article className="panel explanation-hero analysis-memo">
+            <div className="report-introduction">
+              <p className="eyebrow">Incident analysis report</p>
               <h2>{state.data.headline}</h2>
-              <p>{state.data.executive_summary}</p>
+              <div className="executive-summary">
+                <span>Executive summary</span>
+                <p>{state.data.executive_summary}</p>
+              </div>
             </div>
-            <div>
-              <Identifier
-                value={state.data.explanation_id}
-                label="explanation ID"
-              />
-              <LocalDate value={state.data.generated_at} />
-            </div>
-          </section>
-          <div className="two-column">
-            <section className="panel">
-              <h2>Deterministic basis</h2>
-              <dl className="detail-list">
+            <aside className="report-metadata" aria-label="Report metadata">
+              <dl>
                 <div>
-                  <dt>Root cause</dt>
+                  <dt>Provider</dt>
                   <dd>
-                    <RootCauseBadge cause={state.data.suspected_root_cause} />
+                    {state.data.provider}
+                    {state.data.model ? ` · ${state.data.model}` : ""}
                   </dd>
                 </div>
                 <div>
-                  <dt>Affected service</dt>
-                  <dd>{state.data.affected_service ?? "Not identified"}</dd>
+                  <dt>Provider status</dt>
+                  <dd>
+                    <StatusBadge
+                      tone={
+                        state.data.provider_status === "completed"
+                          ? "success"
+                          : "warning"
+                      }
+                    >
+                      {state.data.provider_status}
+                    </StatusBadge>
+                  </dd>
                 </div>
                 <div>
-                  <dt>Diagnosis ID</dt>
+                  <dt>Generated</dt>
+                  <dd>
+                    <LocalDate value={state.data.generated_at} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Report ID</dt>
                   <dd>
                     <Identifier
-                      value={state.data.diagnosis_id}
-                      label="diagnosis ID"
+                      value={state.data.explanation_id}
+                      label="explanation ID"
                     />
                   </dd>
                 </div>
               </dl>
+            </aside>
+          </article>
+          <section className="panel diagnostic-basis">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Authoritative findings</p>
+                <h2>Deterministic basis</h2>
+              </div>
+              <Identifier
+                value={state.data.diagnosis_id}
+                label="diagnosis ID"
+              />
+            </div>
+            <div className="basis-grid">
+              <div className="basis-fact">
+                <span>Root cause</span>
+                <RootCauseBadge cause={state.data.suspected_root_cause} />
+              </div>
+              <div className="basis-fact">
+                <span>Affected service</span>
+                <strong>
+                  {state.data.affected_service ?? "Not identified"}
+                </strong>
+              </div>
               <ConfidenceMeter
                 value={state.data.confidence}
                 level={state.data.confidence_level}
               />
-              <TelemetryCoverage coverage={state.data.telemetry_coverage} />
-            </section>
-            <section className="panel">
+            </div>
+            <TelemetryCoverage coverage={state.data.telemetry_coverage} />
+          </section>
+          <div className="two-column report-narrative">
+            <section className="panel report-section">
+              <p className="eyebrow">Observed consequence</p>
               <h2>Impact</h2>
               <p>{state.data.impact}</p>
-              <h3>Uncertainties</h3>
+            </section>
+            <section className="panel report-section">
+              <p className="eyebrow">Limits of analysis</p>
+              <h2>Uncertainties</h2>
               <TextList
                 items={state.data.uncertainties}
                 empty="No uncertainties were recorded."
               />
             </section>
           </div>
-          <section className="panel">
+          <section className="panel causal-report">
+            <p className="eyebrow">Cause to effect</p>
             <h2>Causal chain</h2>
             <ol className="causal-chain">
               {state.data.causal_chain.map((step) => (
@@ -190,7 +237,8 @@ export function ExplanationDetailPage() {
               ))}
             </ol>
           </section>
-          <section className="panel">
+          <section className="panel claims-report">
+            <p className="eyebrow">Traceable assertions</p>
             <h2>Evidence-based claims</h2>
             <div className="claim-list">
               {state.data.evidence_based_claims.length ? (
@@ -212,16 +260,19 @@ export function ExplanationDetailPage() {
               )}
             </div>
           </section>
-          <section className="panel">
+          <section className="panel evidence-report">
+            <p className="eyebrow">Source register</p>
             <h2>Evidence index</h2>
             <div className="evidence-grid">
-              {state.data.evidence_index.map((item) => (
-                <EvidenceCard key={item.evidence_id} evidence={item} />
-              ))}
+              {orderEvidenceBySeverity(state.data.evidence_index).map(
+                (item) => (
+                  <EvidenceCard key={item.evidence_id} evidence={item} />
+                ),
+              )}
             </div>
           </section>
           <div className="two-column">
-            <section className="panel">
+            <section className="panel action-report">
               <h2>Immediate actions</h2>
               <TextList
                 items={state.data.immediate_actions}
@@ -233,7 +284,7 @@ export function ExplanationDetailPage() {
                 empty="No follow-up actions."
               />
             </section>
-            <section className="panel">
+            <section className="panel operator-report">
               <h2>Operator notes</h2>
               <p>
                 {state.data.operator_notes ??
@@ -246,7 +297,7 @@ export function ExplanationDetailPage() {
               />
             </section>
           </div>
-          <section className="panel">
+          <section className="panel validation-report">
             <h2>Existing validation state</h2>
             <ValidationResults
               result={state.data.validation}

@@ -1,11 +1,4 @@
-import type { SourceStatus, TelemetryCoverageValue } from "../../api/types";
-import { StatusBadge } from "./status-badge";
-
-function tone(status: SourceStatus): "success" | "warning" | "danger" {
-  if (status === "available") return "success";
-  if (status === "partial") return "warning";
-  return "danger";
-}
+import type { TelemetryCoverageValue } from "../../api/types";
 
 export function TelemetryCoverage({
   coverage,
@@ -15,9 +8,12 @@ export function TelemetryCoverage({
   return (
     <div className="coverage-list" aria-label="Telemetry coverage">
       {Object.entries(coverage).map(([source, status]) => (
-        <div key={source}>
+        <div className="coverage-item" data-status={status} key={source}>
           <span className="coverage-source">{source}</span>
-          <StatusBadge tone={tone(status)}>{status}</StatusBadge>
+          <span className="coverage-state">
+            <span className="coverage-dot" aria-hidden="true" />
+            {status}
+          </span>
         </div>
       ))}
     </div>

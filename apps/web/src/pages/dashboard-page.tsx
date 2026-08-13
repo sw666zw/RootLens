@@ -18,16 +18,27 @@ function MetricCard({
   label,
   value,
   detail,
+  kind = "metric",
+  tone = "navy",
 }: {
   label: string;
   value: string | number;
   detail: string;
+  kind?: "status" | "metric";
+  tone?: "navy" | "brass" | "forest" | "burgundy";
 }) {
   return (
-    <article className="metric-card">
-      <p>{label}</p>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+    <article className={`metric-card metric-${tone} ${kind}-card`}>
+      <div>
+        <div className="metric-heading">
+          {kind === "status" && (
+            <span className="service-status-dot" aria-hidden="true" />
+          )}
+          <p>{label}</p>
+        </div>
+        <strong>{value}</strong>
+        <small>{detail}</small>
+      </div>
     </article>
   );
 }
@@ -43,7 +54,14 @@ function RecentIncidents({ items }: { items: IncidentSummary[] }) {
             </Link>
             <Identifier value={item.scenario_id} label="scenario ID" />
           </div>
-          <LocalDate value={item.started_at} />
+          <div className="activity-aside">
+            <StatusBadge tone={item.failed_requests ? "danger" : "success"}>
+              {item.failed_requests
+                ? `${item.failed_requests} failed`
+                : `${item.successful_requests} succeeded`}
+            </StatusBadge>
+            <LocalDate value={item.started_at} />
+          </div>
         </li>
       ))}
     </ul>
@@ -61,7 +79,13 @@ function RecentDiagnoses({ items }: { items: DiagnosisSummary[] }) {
             </Link>
             <Identifier value={item.diagnosis_id} label="diagnosis ID" />
           </div>
-          <LocalDate value={item.generated_at} />
+          <div className="activity-aside">
+            <span className="inline-meta">
+              {item.affected_service ?? "No affected service"} ·{" "}
+              {Math.round(item.confidence * 100)}%
+            </span>
+            <LocalDate value={item.generated_at} />
+          </div>
         </li>
       ))}
     </ul>
@@ -79,7 +103,9 @@ function RecentExplanations({ items }: { items: ExplanationSummary[] }) {
             >
               {item.headline}
             </Link>
-            <span className="inline-meta">{item.provider}</span>
+            <span className="inline-meta">
+              {item.provider} · {item.provider_status}
+            </span>
           </div>
           <LocalDate value={item.generated_at} />
         </li>
@@ -99,7 +125,9 @@ function SectionState<T>({
 }) {
   return (
     <section className="panel dashboard-panel">
-      <h2>{title}</h2>
+      <div className="section-heading">
+        <h2>{title}</h2>
+      </div>
       {state.loading && !state.data ? (
         <LoadingState label={`Loading ${title.toLowerCase()}`} />
       ) : null}
@@ -142,9 +170,9 @@ export function DashboardPage() {
   return (
     <div className="page">
       <PageHeader
-        eyebrow="Local observability"
-        title="System overview"
-        description="Evidence-backed incidents, deterministic diagnoses, and operator explanations in one safe view."
+        eyebrow="RootLens observatory"
+        title="Incident Intelligence"
+        description="Trace an operational event from observed behavior to deterministic root cause and an evidence-grounded operator report."
       />
       <section className="metric-grid" aria-label="System totals">
         <MetricCard
@@ -159,23 +187,32 @@ export function DashboardPage() {
           detail={
             health.error
               ? "Connection failed"
-              : (health.data?.service ?? "Checking service")
+              : health.data?.status === "ok"
+                ? "Service operational"
+                : health.data
+                  ? "Service unavailable"
+                  : "Checking service"
           }
+          kind="status"
+          tone={health.data?.status === "ok" ? "forest" : "burgundy"}
         />
         <MetricCard
           label="Visible incidents"
           value={incidents.data?.length ?? "…"}
           detail="Ground-truth-safe reports"
+          tone="burgundy"
         />
         <MetricCard
           label="Diagnoses"
           value={diagnoses.data?.length ?? "…"}
           detail="Deterministic reports"
+          tone="brass"
         />
         <MetricCard
           label="Explanations"
           value={explanations.data?.length ?? "…"}
           detail="Generated narratives"
+          tone="navy"
         />
       </section>
 
@@ -234,24 +271,20 @@ export function DashboardPage() {
         <SectionState title="Telemetry coverage" state={diagnoses}>
           {() => (
             <div className="coverage-summary">
-              <StatusBadge
-                tone={
-                  coverage.length && coverageAvailable === coverage.length
-                    ? "success"
-                    : "warning"
-                }
-              >
-                {coverageAvailable} of {coverage.length} source observations
-                available
-              </StatusBadge>
-              <p className="muted">
-                Across the currently visible deterministic diagnoses.
-              </p>
+              <strong>
+                <span>{coverageAvailable}</span> / {coverage.length}
+              </strong>
+              <div>
+                <p>Source observations available</p>
+                <small>Across all visible deterministic diagnoses</small>
+              </div>
             </div>
           )}
         </SectionState>
-        <section className="panel dashboard-panel">
-          <h2>Service health</h2>
+        <section className="panel dashboard-panel service-health-widget">
+          <div className="section-heading">
+            <h2>Service health</h2>
+          </div>
           {health.loading && !health.data ? (
             <LoadingState label="Checking Diagnosis Service" />
           ) : null}
@@ -263,11 +296,15 @@ export function DashboardPage() {
             />
           ) : null}
           {health.data ? (
-            <StatusBadge
-              tone={health.data.status === "ok" ? "success" : "warning"}
-            >
-              {health.data.service}: {health.data.status}
-            </StatusBadge>
+            <div className="service-health-reading">
+              <span aria-hidden="true" />
+              <div>
+                <strong>{health.data.service}</strong>
+                <small>
+                  Service status · {health.data.status.toUpperCase()}
+                </small>
+              </div>
+            </div>
           ) : null}
         </section>
       </div>

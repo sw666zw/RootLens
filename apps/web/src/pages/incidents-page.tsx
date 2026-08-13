@@ -95,40 +95,54 @@ export function IncidentsPage() {
             <tbody>
               {state.data.map((incident) => (
                 <tr key={incident.scenario_id}>
-                  <td>
-                    <strong>{incident.scenario_name}</strong>
-                    <Identifier
-                      value={incident.scenario_id}
-                      label="scenario ID"
-                    />
+                  <td data-label="Incident">
+                    <div className="table-cell-value">
+                      <strong>{incident.scenario_name}</strong>
+                      <Identifier
+                        value={incident.scenario_id}
+                        label="scenario ID"
+                      />
+                    </div>
                   </td>
-                  <td>
-                    <LocalDate value={incident.started_at} />
+                  <td data-label="Started">
+                    <div className="table-cell-value">
+                      <LocalDate value={incident.started_at} />
+                    </div>
                   </td>
-                  <td>{duration(incident.started_at, incident.ended_at)}</td>
-                  <td>
-                    {incident.total_requests}
-                    <small>
-                      {incident.successful_requests} successful ·{" "}
-                      {incident.failed_requests} failed
-                    </small>
+                  <td data-label="Duration">
+                    <div className="table-cell-value">
+                      {duration(incident.started_at, incident.ended_at)}
+                    </div>
                   </td>
-                  <td>
-                    <StatusBadge
-                      tone={incident.failed_requests ? "warning" : "success"}
-                    >
-                      {incident.failed_requests
-                        ? "Failures observed"
-                        : "All successful"}
-                    </StatusBadge>
+                  <td data-label="Requests">
+                    <div className="table-cell-value">
+                      {incident.total_requests}
+                      <small>
+                        {incident.successful_requests} successful ·{" "}
+                        {incident.failed_requests} failed
+                      </small>
+                    </div>
                   </td>
-                  <td>
-                    <Link
-                      className="text-link"
-                      to={`/incidents/${encodeURIComponent(incident.scenario_id)}`}
-                    >
-                      View details
-                    </Link>
+                  <td data-label="Outcome">
+                    <div className="table-cell-value">
+                      <StatusBadge
+                        tone={incident.failed_requests ? "danger" : "success"}
+                      >
+                        {incident.failed_requests
+                          ? "Failures observed"
+                          : "Requests succeeded"}
+                      </StatusBadge>
+                    </div>
+                  </td>
+                  <td data-label="Action">
+                    <div className="table-cell-value">
+                      <Link
+                        className="text-link"
+                        to={`/incidents/${encodeURIComponent(incident.scenario_id)}`}
+                      >
+                        View details
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

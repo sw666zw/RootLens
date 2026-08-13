@@ -79,11 +79,12 @@ export function ExplanationsPage() {
         <div className="card-list">
           {filtered.map((explanation) => (
             <article
-              className="panel report-card"
+              className="panel report-card explanation-card"
               key={explanation.explanation_id}
             >
               <header>
-                <div>
+                <div className="provider-line">
+                  <span className="report-label">Provider</span>
                   <StatusBadge
                     tone={
                       explanation.provider_status === "completed"
@@ -104,13 +105,19 @@ export function ExplanationsPage() {
                 value={explanation.explanation_id}
                 label="explanation ID"
               />
-              <p className="muted">
-                Diagnosis{" "}
-                <Identifier
-                  value={explanation.diagnosis_id}
-                  label="diagnosis ID"
-                />
-              </p>
+              <div className="explanation-card-facts">
+                <div>
+                  <span>Linked diagnosis</span>
+                  <Identifier
+                    value={explanation.diagnosis_id}
+                    label="diagnosis ID"
+                  />
+                </div>
+                <p className="report-summary-meta">
+                  <span>Confidence</span>
+                  <strong>{Math.round(explanation.confidence * 100)}%</strong>
+                </p>
+              </div>
               <footer>
                 <Link
                   className="text-link"
