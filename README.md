@@ -127,9 +127,37 @@ Open <http://localhost:5173>. The [demo playbook](docs/DEMO.md) covers the compl
 
 ## Product screenshots
 
-Release screenshots have not been committed yet, so this section intentionally contains no broken image links. Follow the exact framing, filenames, and privacy checklist in [docs/screenshots/README.md](docs/screenshots/README.md); `diagnosis-detail.png` is the intended hero image.
+The diagnosis detail presents the deterministic root cause alongside confidence, telemetry coverage, candidate scores, and normalized supporting evidence.
 
-The finished interface uses a light academic/editorial theme with warm ivory surfaces, navy typography, restrained brass, forest, and burgundy accents, a custom magnifying-glass and root-system mark, and responsive desktop and wide-screen layouts.
+![RootLens diagnosis detail showing the root cause, confidence, telemetry coverage, candidate scores, and supporting evidence](docs/screenshots/diagnosis-detail.png)
+
+The overview summarizes service health and recent incidents.
+
+![RootLens overview](docs/screenshots/overview.png)
+
+The incident detail brings the relevant request, service, and failure context together for investigation.
+
+![RootLens incident detail](docs/screenshots/incident-detail.png)
+
+The explanation detail turns the diagnosis evidence into a concise, reviewable narrative.
+
+![RootLens explanation detail](docs/screenshots/explanation-detail.png)
+
+### Observability
+
+Grafana demonstrates structured centralized logs and observability dashboards.
+
+![RootLens telemetry in Grafana](docs/screenshots/grafana.png)
+
+Jaeger demonstrates the distributed Order → Inventory trace, including PostgreSQL spans.
+
+![RootLens distributed trace in Jaeger](docs/screenshots/jaeger.png)
+
+### Continuous integration
+
+Final pull-request checks cover Python 3.12, Frontend Node 22, and configuration validation.
+
+![RootLens pull-request checks](docs/screenshots/ci.png)
 
 ## Evaluation
 
