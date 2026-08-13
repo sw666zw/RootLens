@@ -35,9 +35,9 @@ There is one deliberate consistency gap: Inventory can reserve stock and the
 subsequent confirmed-state commit can fail. Order does not retry Inventory and
 returns `503 {"detail":"Order service unavailable."}` while logging
 `order_consistency_risk`. A keyed retry finds the durable `pending` row and
-does not reserve again. A later reconciliation milestone will address orders
-that remain pending permanently. Reconciliation, compensation, automatic
-retries, payments, queues, and automated diagnosis are outside this milestone.
+does not reserve again. Reconciliation for orders that remain pending
+permanently is not implemented. Compensation, automatic retries, payments,
+queues, and remediation are also outside the service's scope.
 
 ## Retry-safe creation with Idempotency-Key
 

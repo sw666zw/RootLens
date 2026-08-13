@@ -140,5 +140,6 @@ python -m ruff check services/inventory services/order services/diagnosis \
 docker compose config
 ```
 
-The web investigation interface is the next milestone. Remediation, scheduling,
-alerting, authentication, a service database, and workers are not implemented.
+The React/TypeScript investigation interface uses this service as its only
+backend. Remediation, scheduling, alerting, authentication, a service database,
+and workers are not implemented.

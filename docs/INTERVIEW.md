@@ -1,0 +1,117 @@
+# RootLens interview preparation
+
+## Core questions
+
+### What problem does RootLens solve?
+
+Distributed failures leave evidence in different systems: aggregate behavior in metrics, discrete outcomes in logs, and request paths in traces. RootLens demonstrates how to normalize and correlate those signals for a bounded incident, produce an inspectable deterministic diagnosis, and optionally turn it into evidence-grounded operator prose without giving an LLM authority over the root cause.
+
+### Walk through the architecture.
+
+A client sends orders to the FastAPI Order Service, which persists its state in Order PostgreSQL and calls the FastAPI Inventory Service. Inventory owns a separate PostgreSQL database and reserves stock. Inventory, Order, and Diagnosis expose Prometheus metrics, write structured JSON logs that Alloy sends to Loki, and export OpenTelemetry spans through the Collector to Jaeger. A scenario runner creates controlled traffic and incident reports. The Diagnosis Service projects an incident onto safe fields, queries telemetry, runs the deterministic engine, stores reports as atomic JSON files, optionally creates an explanation, and serves everything to the React/TypeScript frontend.
+
+### Why metrics, logs, and traces?
+
+They answer different questions. Metrics show rates, latency distributions, statuses, and availability over time. Logs show discrete domain outcomes and carry request-level correlation fields. Traces show the causal request path and where time or errors occurred across Order, Inventory, and PostgreSQL. Correlating all three produces stronger support and makes missing or contradictory evidence visible.
+
+### Why use deterministic diagnosis before an LLM?
+
+The supported catalog is small enough to encode as explicit rules. Determinism makes the decision reproducible, exposes candidate scores and contradictions, supports exact-match evaluation, and degrades safely when telemetry is incomplete. The LLM is then useful for communication without becoming an opaque or unstable root-cause selector.
+
+### What exactly is the LLM allowed to do?
+
+It may generate structured operator-facing narrative from a safe projection of an already completed diagnosis: headline, summary, impact, causal chain, evidence-based claims, actions, uncertainties, and notes. It receives stable evidence IDs and must cite them. It makes one bounded request with no tools, files, browsing, conversation history, or additional telemetry access.
+
+### What is the LLM prohibited from doing?
+
+It cannot choose or change the root cause, affected service, confidence, confidence level, telemetry coverage, candidate evidence, or diagnosis outcome. It cannot read ground truth, incident reports, raw telemetry, database URLs, environment variables, request bodies, SQL, idempotency keys, or credentials. It cannot execute remediation or call other tools.
+
+### How is ground-truth leakage prevented?
+
+The incident loader projects only timestamps, request IDs, trace IDs, request count, SKU, and concurrency before validating a model that forbids extra fields. The analyzer never receives the scenario name or ID, expected cause, expected symptoms, target service, filename, or path. A diagnosis is written first; the separate evaluator loads that completed report and reads `expected_root_cause` afterward. Tests assert the field boundary and ordering.
+
+### How are controlled incidents generated?
+
+The scenario runner creates a unique stocked SKU, configures an explicitly enabled loopback-only Inventory reservation fault, sends bounded idempotent traffic through Order, verifies broad outcomes, and writes a synthetic incident report. `baseline` clears faults, `inventory-latency` adds asynchronous delay, and `inventory-unavailable` returns 503 before reservation. A `finally` path always attempts to reset the fault.
+
+### How is benchmark accuracy measured?
+
+Each completed deterministic diagnosis is compared with the scenario's expected root-cause string. Accuracy is exact matches divided by completed evaluated diagnoses, both overall and by scenario; a confusion matrix records expected-to-predicted pairs. Repetitions, confidence, telemetry coverage, scenario duration, and diagnosis duration are also reported. LLM prose is not included.
+
+### What happens when telemetry is incomplete?
+
+Each source query fails independently and coverage is reported as available, partial, or unavailable. Rules never treat missing telemetry as support, and incomplete coverage can reduce confidence. With no usable sources, the engine returns `unknown` with zero confidence. A caller may require all sources, in which case any unavailable source produces a safe non-success response after the report is written.
+
+### How do request IDs differ from trace IDs?
+
+A request ID is an application correlation value, often client-supplied or generated at the edge, that is explicitly propagated in `X-Request-ID` and remains useful in logs without tracing. A trace ID is generated by OpenTelemetry and identifies the span tree governed by W3C trace context. One request ID can be searched as a JSON field across services; one trace ID opens the distributed timing path in Jaeger.
+
+### Why does Order use a separate database?
+
+Order and Inventory own different business capabilities. Separate databases prevent cross-service table access, keep migrations and releases independent, and force network and failure boundaries to be explicit. Order persists its own lifecycle and never joins or updates Inventory data directly.
+
+### Why is `Idempotency-Key` needed?
+
+A client can lose a response after the server completes an order and then retry. Without idempotency, the retry could reserve stock twice. Order atomically claims a key, fingerprints the normalized payload, and replays a stored terminal outcome only for a matching request; conflicts protect against key misuse or concurrent in-progress work.
+
+### Why must Prometheus labels have bounded cardinality?
+
+Each unique label set creates a time series. Values such as request IDs, trace IDs, SKUs, or order IDs grow without a fixed bound and can consume excessive memory, storage, and query resources. RootLens labels metrics only with bounded dimensions such as route template, status code, outcome, and supported root cause.
+
+### Why are request IDs and trace IDs not Loki labels?
+
+Loki indexes label combinations, so per-request values would create an ever-growing high-cardinality index. RootLens keeps them inside each JSON log line and extracts them at query time with `| json`. That preserves exact correlation without turning every request into a new indexed stream.
+
+### How does trace context propagate Order to Inventory?
+
+OpenTelemetry instruments FastAPI and HTTPX. When Order performs the downstream HTTP request, the client instrumentation injects the W3C `traceparent` header; Inventory's server instrumentation extracts it and creates a child server span. SQLAlchemy instrumentation adds database spans under the active service span. `X-Request-ID` is forwarded separately by application code.
+
+### How does RootLens safely access report files?
+
+The public API accepts report IDs, not filesystem paths. It rejects encoded changes, absolute paths, dots, separators, hidden files, unsupported suffixes, and IDs outside a strict length and character pattern. It reads only direct `.json` children of a resolved configured root and confirms the embedded report ID. Writers use unique IDs and atomic replacement so readers do not see partial files.
+
+### Why does the frontend talk only to the Diagnosis Service?
+
+The service provides one validated, ground-truth-safe API contract and keeps filesystem paths, telemetry credentials, database access, and provider configuration on the backend. The Vite development proxy also keeps browser requests same-origin without adding development-only CORS behavior.
+
+### Why does the browser never receive `OPENAI_API_KEY`?
+
+Vite frontend variables are shipped to clients and therefore cannot hold secrets. Only the backend explanation provider reads the ignored environment value and makes the optional request. The browser asks for a provider by name and receives a safe explanation report, never a key, prompt payload, raw provider response, or private configuration.
+
+### What are the limitations of RootLens?
+
+It covers three synthetic scenarios and four possible diagnosis outputs in one local topology. Fault injection, credentials, file reports, and telemetry stores are local-development choices. There is no authentication, deployment, alerting, durable trace storage, multi-tenant report database, arbitrary incident discovery, causal proof, automated remediation, or claim of production accuracy.
+
+### What would a production version require next?
+
+It would need authentication and authorization, secret management, TLS, durable and scalable telemetry storage, retention and tenancy policies, a report database and job queue, rate limits and backpressure, deployment and rollback automation, alert-driven ingestion, broader and independently validated diagnosis rules, calibrated uncertainty, operational SLOs, audit trails, and safe human approval around any remediation.
+
+## Deeper engineering follow-ups
+
+### How would you scale telemetry queries?
+
+Precompute recording rules for expensive metric expressions, narrow every query by tenant and bounded time, batch trace lookups, use structured log fields and query limits, cache immutable diagnosis inputs, enforce per-source budgets, and move long diagnoses to a queue. Measure query latency and cardinality before adding indexes or materialized features.
+
+### What happens under concurrent diagnosis requests?
+
+Each request has independent context and concurrently queries its three sources using application-scoped HTTP clients. Reports receive unique IDs and are atomically written, so filenames do not collide and partial JSON is not exposed. A production version would add a bounded worker pool, deduplication, admission control, cancellation, and per-tenant limits.
+
+### Why file reports instead of another database?
+
+For a local, single-user evaluation project, immutable JSON is transparent, portable, easy to diff, and avoids adding an unrelated persistence service. The tradeoff is linear directory scanning, weak indexing, limited concurrency semantics, and no tenancy or retention management. A production version would move report metadata and artifacts to durable indexed storage.
+
+### How would you add a new root-cause rule?
+
+First add a controlled scenario and independent expected target, then define the normalized features required without leaking its label. Implement bounded supporting and contradicting weights, thresholds, summaries, checks, and tests for the new candidate plus regressions for existing candidates. Finally run repeated benchmarks and inspect the confusion matrix, confidence margins, and incomplete-telemetry behavior.
+
+### How would you prevent false confidence in a larger catalog?
+
+Require independent evidence sources, explicit contradictions, minimum score and margin thresholds, coverage-aware confidence, and an `unknown` abstention path. Evaluate on unseen and adversarial cases, calibrate confidence empirically, monitor class imbalance and drift, and separate “best candidate” from “enough evidence to decide.”
+
+### How would you handle overlapping incidents?
+
+The current engine assumes one bounded controlled case. A larger system would first segment by service, request cohort, trace topology, and time; allow multiple hypotheses; model shared observations carefully; and avoid forcing one winner. Evaluation would need multi-label ground truth and attribution metrics rather than simple exact match.
+
+### Why are raw telemetry responses excluded from reports and LLM input?
+
+Raw responses are large, unstable, and may contain sensitive or high-cardinality data. Typed normalization limits the trust boundary, makes rules and tests deterministic, reduces prompt-injection surface, and produces stable evidence references. Operators can still follow safe correlation identifiers back to the source systems.

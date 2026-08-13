@@ -1,157 +1,126 @@
 # RootLens architecture
 
-RootLens is a local-development observability and deterministic incident-
-diagnosis system built around a deliberately small distributed application. It
-separates business data, telemetry, deterministic analysis, optional prose, and
-evaluation ground truth so each boundary can be inspected and tested.
+RootLens is a local observability and deterministic incident-diagnosis system built around a deliberately small distributed application. Its boundaries keep business data, telemetry, ground truth, deterministic decisions, and optional prose independently inspectable.
 
-## Components
-
-- **Inventory Service** is a Python 3.12 FastAPI service on port 8000. It owns
-  inventory items and concurrency-safe reservations in Inventory PostgreSQL.
-  Development-only, loopback-only fault controls can delay or reject reservation
-  traffic when explicitly enabled.
-- **Order Service** is a Python 3.12 FastAPI service on port 8001. It owns order
-  lifecycle and idempotency data in Order PostgreSQL. It calls Inventory over
-  HTTP while propagating request IDs and W3C trace context. It never writes the
-  Inventory database and does not keep a database transaction open across the
-  downstream request.
-- **Diagnosis Service** is a Python 3.12 FastAPI service on port 8002. It exposes
-  safe incident projections and persisted diagnosis/explanation artifacts by ID.
-  It imports the deterministic engine directly and owns no database.
-- **Scenario runner** creates one synthetic SKU, configures an allowed Inventory
-  reservation fault, sends bounded Order traffic, validates the broad outcome,
-  and writes an incident report with evaluation ground truth. It always attempts
-  to clear the fault.
-- **Diagnosis engine** projects a report onto an allowlist, queries a single
-  normalized time window, extracts typed features, applies transparent scoring
-  rules, and atomically writes a diagnosis. Supported root causes are `none`,
-  `inventory_reservation_latency`, `inventory_service_unavailable`, and the
-  insufficient-evidence fallback `unknown`.
-- **Benchmark runner** repeats the supported scenarios, waits for telemetry,
-  diagnoses each safe projection, persists it, then invokes the separate
-  evaluator. It aggregates accuracy, confidence, coverage, timing, and a
-  confusion matrix without invoking explanation providers.
-- **React frontend** is a Vite/TypeScript investigation console on port 5173.
-  It calls only the Diagnosis API through the local Vite proxy. It does not read
-  report files or directly query databases or telemetry backends.
-
-## Runtime topology
+## Service boundaries and business flow
 
 ```mermaid
 flowchart LR
-    Browser["React web interface"] -->|"safe HTTP API"| Diagnosis["Diagnosis Service :8002"]
-    Client["Scenario runner / client"] --> Order["Order Service :8001"]
-    Order -->|"reserve stock"| Inventory["Inventory Service :8000"]
-    Order --> OrderDB[("Order PostgreSQL")]
-    Inventory --> InventoryDB[("Inventory PostgreSQL")]
-
-    Order -->|"metrics"| Prometheus
-    Inventory -->|"metrics"| Prometheus
-    Diagnosis -->|"metrics"| Prometheus
-    Order -->|"JSONL"| Alloy
-    Inventory -->|"JSONL"| Alloy
-    Diagnosis -->|"JSONL"| Alloy
-    Alloy --> Loki
-    Order -->|"OTLP"| Collector["OpenTelemetry Collector"]
-    Inventory -->|"OTLP"| Collector
-    Diagnosis -->|"OTLP"| Collector
-    Collector --> Jaeger
-    Prometheus --> Grafana
-    Loki --> Grafana
-    Jaeger --> Grafana
-
-    Scenario["Scenario runner"] --> Incident[("Incident JSON")]
-    Incident --> Projection["Safe incident projection"]
-    Projection --> Engine["Deterministic diagnosis engine"]
-    Prometheus --> Engine
-    Loki --> Engine
-    Jaeger --> Engine
-    Engine --> DiagnosisReport[("Diagnosis JSON")]
-    DiagnosisReport --> Diagnosis
+    Client["Client"] --> Order["Order Service :8001"]
+    Order -->|"reserve stock over HTTP"| Inventory["Inventory Service :8000"]
+    Order --> OrderDB[("Order PostgreSQL :5433")]
+    Inventory --> InventoryDB[("Inventory PostgreSQL :5432")]
 ```
 
-The two PostgreSQL instances are separate service-owned databases. Prometheus,
-Grafana, Loki, Alloy, the OpenTelemetry Collector, and Jaeger run in Docker for
-local development; the three FastAPI processes run on the host. Compose does
-not run the business services or frontend.
+- **Inventory Service** owns inventory items and concurrency-safe reservations in Inventory PostgreSQL. Development-only, loopback-only controls can delay or reject reservation traffic when explicitly enabled.
+- **Order Service** owns pending, confirmed, rejected, and failed order records plus idempotency claims in Order PostgreSQL. It never reads or writes Inventory tables.
+- **Diagnosis Service** owns the safe HTTP boundary for incident, diagnosis, and explanation report files. It imports the diagnosis engine directly and owns no database.
+- **React frontend** calls only the Diagnosis Service through the Vite `/api` proxy. It does not access report paths, databases, telemetry APIs, or OpenAI directly.
 
-## Request, trace, and report flow
+Separate databases preserve service ownership and keep schema, transaction, and failure handling boundaries explicit. Order commits a pending record before calling Inventory and commits the terminal outcome afterward; it does not hold a database transaction open across the network call.
 
-1. The scenario runner sends `POST /orders` with a fresh request ID and
-   idempotency key.
-2. Order durably claims a pending order, calls Inventory, and propagates the
-   request ID plus trace context. Inventory locks the item row for reservation.
-3. Both services emit bounded metrics, structured JSON logs, and spans. Order
-   records the final persisted status after the downstream call completes.
-4. The scenario runner writes incident timestamps and correlation IDs alongside
-   independent expected root cause. Incident files are outside the Alloy mount.
-5. Diagnosis accepts only timestamps, request IDs, trace IDs, request count,
-   SKU, and concurrency. It queries Prometheus, Loki, and Jaeger and writes an
-   immutable diagnosis report.
-6. Evaluation later loads that completed diagnosis and reads only
-   `expected_root_cause` from the incident report.
-7. The Diagnosis API and browser expose a separate safe incident projection;
-   ordinary incident responses omit expected cause, expected symptoms, target
-   service, and generation parameters.
+### Request identity, trace context, and idempotency
 
-## Telemetry responsibilities
+The inbound `X-Request-ID` is preserved when non-empty or generated when absent. Order forwards it to Inventory so structured logs can correlate one logical request across services. OpenTelemetry instrumentation separately propagates W3C `traceparent` context through the HTTPX call, creating a distributed trace across Order, Inventory, and instrumented SQL operations.
 
-- **Prometheus** scrapes `/metrics` on all three FastAPI services every five
-  seconds and supplies bounded aggregate measurements to diagnosis.
-- **Alloy** tails the three service JSONL files and sends them to **Loki**.
-  Request-specific values remain JSON fields rather than high-cardinality labels.
-- **OpenTelemetry Collector** receives OTLP from host services and forwards
-  traces to **Jaeger**. Diagnosis queries exact trace IDs from the incident.
-- **Grafana** provisions Prometheus, Loki, and Jaeger data sources and tracked
-  dashboards. It is a human investigation surface, not an input to diagnosis.
+A request ID is an application correlation value that may be supplied by a client and can connect logs even when tracing is disabled. A trace ID is generated by the tracing system and identifies an entire span tree. They are related but not interchangeable.
 
-## Trust boundaries
+`Idempotency-Key` makes an Order POST safe to retry. Order atomically claims a non-null key with a PostgreSQL partial unique index and stores a request fingerprint. A matching retry replays the stored terminal result, while payload mismatch or in-progress processing returns a safe conflict. Raw keys are never logged, traced, or used as telemetry labels.
+
+## Observability flow
 
 ```mermaid
-flowchart TB
-    subgraph GroundTruth["Ground-truth boundary"]
-      Incident["Full incident report"]
-      Evaluator["Evaluator"]
+flowchart LR
+    subgraph Services["Instrumented services"]
+      Inventory["Inventory"]
+      Order["Order"]
+      Diagnosis["Diagnosis"]
     end
-    subgraph Analysis["Authoritative deterministic boundary"]
-      Safe["Allowlisted incident context"]
-      Telemetry["Normalized telemetry features"]
-      Rules["Deterministic rules and scores"]
-      Report["Diagnosis report"]
-      Safe --> Telemetry --> Rules --> Report
-    end
-    subgraph Narrative["Optional narrative boundary"]
-      Projection["Typed diagnosis projection"]
-      Template["Template provider"]
-      OpenAI["Explicitly enabled OpenAI provider"]
-    end
-    Incident -->|"project before validation"| Safe
-    Report --> Evaluator
-    Incident -->|"expected cause only after report exists"| Evaluator
-    Report --> Projection
-    Projection --> Template
-    Projection --> OpenAI
+
+    Inventory -->|"/metrics"| Prometheus["Prometheus"]
+    Order -->|"/metrics"| Prometheus
+    Diagnosis -->|"/metrics"| Prometheus
+
+    Inventory -->|"structured JSONL"| Alloy["Grafana Alloy"]
+    Order -->|"structured JSONL"| Alloy
+    Diagnosis -->|"structured JSONL"| Alloy
+    Alloy --> Loki["Loki"]
+
+    Inventory -->|"OTLP"| Collector["OpenTelemetry Collector"]
+    Order -->|"OTLP"| Collector
+    Diagnosis -->|"OTLP"| Collector
+    Collector --> Jaeger["Jaeger"]
+
+    Prometheus --> Grafana["Grafana"]
+    Loki --> Grafana
+    Jaeger --> Grafana
 ```
 
-Private environment values, database credentials, full incident ground truth,
-raw telemetry responses, and provider credentials are outside the browser and
-generated benchmark reports. OpenAI use requires an explicit backend provider,
-enable flag, and key. The template provider is the offline default. Provider
-output is validated and cannot change protected diagnosis fields or cite unknown
-evidence.
+Prometheus scrapes each service every five seconds. Its labels are limited to bounded dimensions such as method, route template, status code, outcome, root cause, and provider status. Request IDs, trace IDs, SKUs, order IDs, and idempotency keys would create unbounded series and therefore are not Prometheus labels.
 
-## Why deterministic diagnosis is authoritative
+Alloy tails the three JSONL files and sends them to Loki. Loki indexes only `service`, `environment`, `level`, and `job`; request IDs and trace IDs remain parsed JSON fields. This retains query-time correlation without creating an ever-growing high-cardinality index.
 
-The supported catalog is intentionally encoded as visible rules with bounded
-weights, decision thresholds, contradictions, source coverage, and evidence
-references. The same normalized inputs therefore produce the same root cause.
-Template and OpenAI providers receive only a completed diagnosis projection and
-produce prose; application code copies every protected field into the final
-explanation. Root-cause accuracy is evaluated on the deterministic field, never
-on narrative quality. This keeps evaluation reproducible and prevents a fluent
-explanation from overriding weak or missing telemetry.
+The OpenTelemetry Collector receives OTLP from the host services and forwards traces to Jaeger. Grafana provisions Prometheus, Loki, and Jaeger data sources and tracked dashboards. Grafana is a human investigation surface, not a diagnosis input.
 
-RootLens is not production-ready. It has no authentication, deployment model,
-alerting, automated remediation, durable Jaeger storage, or broad incident
-catalog.
+## Diagnosis and explanation flow
+
+```mermaid
+flowchart TD
+    Incident[("Incident report")]
+    API["Diagnosis Service"]
+    Engine["Diagnosis engine"]
+    Sources["Prometheus + Loki + Jaeger"]
+    Normalized["Normalized evidence"]
+    Decision["Deterministic root-cause decision"]
+    Diagnosis[("Diagnosis report")]
+    Provider["Optional template or OpenAI explanation"]
+    Validation["Deterministic explanation validation"]
+    Web["RootLens web interface"]
+
+    Incident --> API
+    API --> Engine
+    Engine --> Sources
+    Sources --> Normalized
+    Normalized --> Decision
+    Decision --> Diagnosis
+    Diagnosis --> Provider
+    Provider --> Validation
+    Diagnosis --> API
+    Provider --> API
+    Validation --> API
+    API --> Web
+```
+
+The scenario runner creates bounded controlled traffic, records timestamps and correlation IDs, and writes a full incident report. Diagnosis projects that report onto an allowlist before Pydantic validation, queries all three telemetry sources concurrently over one padded and capped UTC window, extracts typed features, and applies visible scoring rules. Missing sources fail independently and are represented in telemetry coverage rather than silently imputed.
+
+Normalized evidence contains stable references, safe attributes, counts, durations, categories, severities, and selected trace identifiers. It excludes raw telemetry payloads, request bodies, SQL and parameters, credentials, idempotency keys, environment contents, and raw exceptions. Candidate scores expose supporting and contradicting evidence so the decision can be inspected.
+
+The deterministic diagnosis is authoritative. The optional template or OpenAI provider receives only a typed projection of the completed diagnosis. Application code copies protected root cause, service, confidence, coverage, and evidence fields into the explanation report. The provider cannot query telemetry, use tools, or change the diagnosis. Offline validation checks protected fields, the complete evidence index, citation IDs, required narrative fields, provider status, ground-truth absence, and obvious credential material.
+
+## Ground-truth isolation and evaluation
+
+```mermaid
+flowchart LR
+    FullIncident["Full incident report"] -->|"allowlist projection"| SafeContext["Safe analysis context"]
+    SafeContext --> Engine["Deterministic engine"]
+    Engine -->|"write first"| Diagnosis[("Diagnosis report")]
+    Diagnosis --> Evaluator["Evaluator"]
+    FullIncident -->|"expected_root_cause afterward"| Evaluator
+    Evaluator --> Benchmark["Benchmark aggregation"]
+```
+
+The analyzer receives only timestamps, request IDs, trace IDs, total request count, SKU, and concurrency. It never receives the scenario name or ID, expected root cause, expected symptoms, target service, incident filename, or path. The evaluator first loads an already-written diagnosis and only then reads `expected_root_cause`. Scenario labels may appear in final benchmark reporting after evaluation but cannot flow back into analysis.
+
+The benchmark runner executes configured scenarios in order and runs each scenario's repetitions sequentially, waits for telemetry, writes the diagnosis, evaluates it, and aggregates exact-match accuracy, confidence, telemetry coverage, diagnosis duration, scenario duration, warnings, and a confusion matrix. It does not generate explanations or include prose quality in accuracy.
+
+## Report filesystem safety and concurrency
+
+Runtime reports are local JSON files under configured roots. The Diagnosis API accepts strict report IDs rather than caller-supplied paths: IDs are length-limited, decoded traversal is rejected, absolute paths, dots, and separators are rejected, and only direct non-hidden `.json` files whose embedded ID matches are read. Evaluation and validation suffixes are excluded from ordinary diagnosis and explanation collections.
+
+Reports use unique IDs and atomic temporary-file replacement, so readers do not observe partially written JSON and concurrent requests do not share an output filename. Telemetry HTTP clients are application-scoped, while source queries within a diagnosis run execute concurrently. This is suitable for the trusted local workflow, not a multi-user persistence or job-processing design.
+
+## Runtime topology and limitations
+
+Docker Compose runs the two PostgreSQL databases, Prometheus, Grafana, Loki, Alloy, the OpenTelemetry Collector, and Jaeger. The three FastAPI services and Vite frontend run on the host. Generated incidents, diagnoses, explanations, validations, and benchmarks remain ignored local artifacts; only `.gitkeep` files and curated synthetic examples are tracked.
+
+RootLens has no authentication, deployment model, alerting, automated remediation, durable Jaeger storage, distributed work queue, or broad diagnosis catalog. Fault injection and default credentials are local-development controls only.

@@ -1,137 +1,97 @@
 # RootLens evaluation
 
-RootLens evaluates the deterministic diagnosis engine against controlled
-scenario ground truth. The benchmark measures repeatability for the current
-three-case catalog; it does not claim general incident-diagnosis performance.
+RootLens evaluates the authoritative deterministic diagnosis engine against controlled scenario ground truth. The benchmark measures repeatability across the current supported catalog; it does not claim coverage of arbitrary production incidents.
 
-## Supported catalog
+## Supported scenarios and targets
 
-| Scenario | Expected root cause | Broad expected behavior |
+| Scenario | Supported evaluation target | Controlled behavior |
 | --- | --- | --- |
-| `baseline` | `none` | Orders and reservations succeed without injected delay. |
-| `inventory-latency` | `inventory_reservation_latency` | Orders succeed while Inventory reservation latency is elevated. |
-| `inventory-unavailable` | `inventory_service_unavailable` | Inventory reservation returns 503 and Order persists a failed outcome. |
+| `baseline` | `none` | Orders and Inventory reservations succeed without an injected fault. |
+| `inventory-latency` | `inventory_reservation_latency` | Inventory reservation latency is injected while requests remain successful. |
+| `inventory-unavailable` | `inventory_service_unavailable` | Inventory reservation returns 503 and Order persists failed outcomes. |
 
-`unknown` is a diagnosis fallback for weak, missing, or conflicting evidence;
-it is not a generated scenario or an expected answer in the current catalog.
+`unknown` is the safe diagnosis fallback for weak, missing, conflicting, or out-of-catalog evidence. It is not a generated scenario or expected target in the current benchmark.
 
-## Methodology
+## Evaluation ordering
 
-For every selected scenario and repetition, `rootlens-benchmark`:
+For every configured scenario repetition, `rootlens-benchmark`:
 
-1. verifies Inventory, Order, Prometheus, Loki, and Jaeger without starting or
-   restarting containers;
-2. calls the scenario-runner library with the configured request count,
-   concurrency, and latency delay;
-3. waits the configured telemetry-settle interval;
-4. constructs the diagnosis engine's strict safe incident projection;
-5. queries and normalizes telemetry, runs deterministic rules, and atomically
-   writes a diagnosis report;
-6. only then loads evaluation ground truth and writes a separate evaluation;
-7. resets Inventory faults after the run and once more during final cleanup;
-8. records safe failures and continues when fault state is known to be reset.
+1. Verifies Inventory, Order, Prometheus, Loki, and Jaeger without starting or restarting them.
+2. Runs the controlled scenario with the configured request count, concurrency, and latency delay.
+3. Waits the configured telemetry-settle interval.
+4. Projects the incident onto the diagnosis engine's strict safe context.
+5. Queries and normalizes metrics, logs, and traces.
+6. Runs deterministic rules and atomically writes the diagnosis report.
+7. Loads ground truth afterward and writes a separate evaluation.
+8. Records timing and safe failure information, then continues only when fault reset is known to be safe.
+9. Resets Inventory faults after each run and again during final cleanup.
 
-The runner never calls scenario or diagnosis CLIs through subprocesses and never
-generates template or OpenAI explanations.
+The default configuration uses all three scenarios, three repetitions, 10 requests, concurrency 5, a 1500 ms latency fault, and a 15-second telemetry-settle interval. Scenario repetitions expose nondeterminism from concurrency, scrape timing, or local scheduling instead of relying on one favorable run.
 
 ## Ground-truth isolation
 
-The analyzer model forbids extra fields and receives only `started_at`,
-`ended_at`, `request_ids`, `trace_ids`, `total_requests`, `inventory_sku`, and
-`concurrency`. Projection occurs before model validation. The analyzer never
-receives scenario name, scenario ID, expected root cause, expected symptoms,
-target service, revealing filename, or incident path.
+`expected_root_cause` is not available to the analyzer. Before validation, the incident loader copies only `started_at`, `ended_at`, `request_ids`, `trace_ids`, `total_requests`, `inventory_sku`, and `concurrency` into an immutable model that forbids extra fields.
 
-The evaluator accepts two paths only after diagnosis persistence: it validates
-the diagnosis schema, then reads `expected_root_cause` from the incident. Tests
-assert this operation order and inspect the exact analyzer keys. Reporting may
-use a safe scenario label and the expected answer after evaluation; those values
-do not flow backward into analysis.
+The analyzer never receives scenario name or ID, expected symptoms, target service, a revealing filename, or the incident path. Diagnosis is completed and written first. The separate evaluator then validates that diagnosis and reads only `expected_root_cause` from the incident. Tests assert the operation order and exact analyzer keys. Scenario labels may be used for post-evaluation aggregation but must not leak into analysis.
 
-## Metrics
+## Metrics and reports
 
-An **exact match** means the diagnosis report's `suspected_root_cause` string is
-identical to the scenario's `expected_root_cause`. Overall accuracy is:
+An **exact match** means `suspected_root_cause` is identical to `expected_root_cause`. Overall accuracy is:
 
 ```text
 exact completed matches / completed evaluated diagnoses
 ```
 
-Per-scenario accuracy uses the same calculation. A confusion matrix counts
-expected-to-predicted pairs. A passing benchmark requires at least one completed
-run per configured scenario, a valid evaluation for every completed diagnosis,
-100% overall accuracy, and usable telemetry. Any mismatch is a nonzero exit even
-if other runs pass.
+Per-scenario accuracy applies the same calculation. The confusion matrix counts each expected-to-predicted pair so systematic misclassification remains visible.
 
-Confidence is a deterministic quality indicator, not a calibrated probability.
-It combines the winning score, margin over the next candidate, number of
-supporting source types, and telemetry completeness. Levels are low below 0.5,
-medium from 0.5 through 0.799, and high from 0.8. Reports include overall and
-per-scenario average confidence plus level counts.
+**Confidence** is a deterministic quality indicator, not a calibrated probability. It combines the winning candidate score, margin over the next candidate, independent supporting source types, and telemetry completeness. Reports aggregate average confidence overall and by scenario, plus confidence-level counts:
 
-Telemetry coverage is recorded separately for metrics, logs, and traces as
-`available`, `partial`, or `unavailable`. Partial coverage can lower confidence.
-If all sources are unavailable, the engine returns `unknown` with zero confidence
-and the benchmark exits nonzero. `--require-all-sources` additionally makes any
-unavailable source non-passing.
+- `low`: below 0.5
+- `medium`: 0.5 through 0.799
+- `high`: 0.8 and above
+
+**Telemetry coverage** records metrics, logs, and traces independently as `available`, `partial`, or `unavailable`. Partial coverage can reduce confidence. With all sources unavailable the engine returns `unknown` at zero confidence and the benchmark does not pass. `--require-all-sources` additionally makes any unavailable source non-passing.
+
+**Diagnosis duration** measures the deterministic telemetry collection and analysis portion of each completed run. Scenario duration is tracked separately. Benchmark JSON and Markdown reports include configuration, run summaries, overall and per-scenario results, confidence aggregates, telemetry-coverage counts, scenario and diagnosis duration statistics, warnings, and the confusion matrix.
+
+A passing benchmark requires at least one completed evaluation for every configured scenario, a valid evaluation for every completed diagnosis, usable telemetry, and 100% exact-match accuracy. This threshold is intentionally strict for the small controlled catalog and should not be generalized.
+
+LLM prose quality is not used to calculate root-cause accuracy. Explanation providers cannot select the root cause, the benchmark does not call them, and deterministic explanation validation measures schema and evidence constraints rather than narrative style.
 
 ## Run and inspect
 
-Install the local tools:
-
-```bash
-python3.12 -m pip install -e 'tools/scenario_runner[dev]' \
-  -e 'tools/diagnosis_engine[dev]' -e 'tools/benchmark_runner[dev]'
-```
-
-After starting the application and observability stack described in
-[DEMO.md](DEMO.md), run:
+After starting the application and observability stack described in [DEMO.md](DEMO.md):
 
 ```bash
 rootlens-benchmark run
 ```
 
-Tune only supported benchmark parameters when necessary:
+An explicit equivalent configuration is:
 
 ```bash
-rootlens-benchmark run --repetitions 3 --requests 10 --concurrency 5 \
-  --latency-delay-ms 1500 --telemetry-settle-seconds 15 \
-  --require-all-sources
+rootlens-benchmark run \
+  --scenarios baseline,inventory-latency,inventory-unavailable \
+  --repetitions 3 \
+  --requests 10 \
+  --concurrency 5 \
+  --latency-delay-ms 1500 \
+  --telemetry-settle-seconds 15
 ```
 
-Inspect the generated JSON and Markdown under `runtime/benchmarks`, or print an
-existing JSON report without network or telemetry work:
+Inspect generated JSON and Markdown under `runtime/benchmarks`, or summarize an existing JSON report without running scenarios or querying telemetry:
 
 ```bash
 rootlens-benchmark summarize runtime/benchmarks/BENCHMARK_ID.json
 ```
 
-## Interpretation and limitations
+Generated runtime benchmark reports are ignored. The tracked [benchmark summary](examples/benchmark-summary.example.json) and other files under [examples](examples/README.md) are synthetic, schema-preserving documentation examples; they are not results from a live developer run. No benchmark number is claimed here.
 
-The catalog has three synthetic, controlled cases in one application topology.
-Repeated 100% accuracy shows that the current rules can distinguish those cases
-under the tested local telemetry conditions. It does not establish accuracy for
-novel failures, noisy production telemetry, different architectures, causal
-interactions, database failures, or multi-incident windows. Scenario traffic may
-also be affected by host scheduling and telemetry scrape timing.
+## Limitations
 
-LLM prose is excluded from accuracy because providers cannot choose the root
-cause and prose quality is subjective. Explanation validation checks protected
-fields and evidence references; it is not a substitute for evaluating factual
-root-cause selection. Dependency audits and tests reduce known risk but do not
-prove the project vulnerability-free.
-
-## Dependency validation snapshot
-
-The Milestone 4 review on 2026-08-11 upgraded React Router DOM to 7.18.2,
-Vite to 6.4.3, Vitest to 3.2.7, ESLint and `@eslint/js` to 9.39.5, and refreshed
-`package-lock.json`. These direct updates removed the audit's production React
-Router advisories and development-tool findings without `npm audit fix --force`.
-The post-update `npm audit --json` reported zero known advisories. That is a
-time-specific registry result, not a claim that the project is completely
-vulnerability-free; CI reruns the audit and fails for high or critical findings.
-
-Python packages use bounded version ranges rather than a separate heavy security
-scanner. CI installs every local package together and runs `python -m pip check`
-before tests to catch inconsistent or missing requirements. Maintainers should
-review upstream Python advisories and refresh dependencies regularly.
+- The catalog contains three synthetic, controlled scenarios in one application topology.
+- Faults are deliberately injected in a local development environment.
+- Aggregate metrics can include nearby traffic within the padded analysis window.
+- Results can be affected by host scheduling and telemetry scrape or ingestion timing.
+- The rules do not cover novel services, database incidents, overlapping causes, noisy production environments, or arbitrary real-world failures.
+- Exact-match accuracy across this catalog is not evidence of general production incident-diagnosis accuracy.
+- Explanation validation does not measure prose quality, and dependency checks do not constitute a formal security audit.

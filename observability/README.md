@@ -96,7 +96,7 @@ This is not a production deployment. Loki has no authentication, runs as one
 process, and uses local filesystem storage. Jaeger uses in-memory storage. The
 stack has no alerting or automated remediation.
 
-Milestone 3's scenario reports are deliberately outside this data flow.
+Scenario reports are deliberately outside this data flow.
 `runtime/incidents` is not mounted into Alloy, generated JSON is ignored by
 Git, and reports are not sent to Loki. Fault-control setup calls are excluded
 from Inventory request metrics, completion logs, and tracing, but the affected

@@ -275,12 +275,12 @@ curl -fsS http://127.0.0.1:16686/
 
 ## Current limits
 
-The engine recognizes only the three controlled Milestone 3 outcomes and uses
+The engine recognizes only the three controlled scenario outcomes and uses
 in-memory Jaeger retention. Aggregate Prometheus increases may include nearby
 traffic within the padded window, while logs and traces are narrowed with
 incident correlation IDs. Explanations are limited to an already-generated
 diagnosis and do not judge prose quality, query telemetry, execute remediation,
-or prove causality beyond deterministic evidence. There is no diagnosis API,
-web UI, RAG or vector database, broader incident catalog, alerting, autonomous
-tool use, or remediation; a diagnosis API and investigation UI remain future
-work.
+or prove causality beyond deterministic evidence. The separate Diagnosis Service
+and web interface expose the engine's reports; there is no RAG or vector
+database, broader incident catalog, alerting, autonomous tool use, or
+remediation.
