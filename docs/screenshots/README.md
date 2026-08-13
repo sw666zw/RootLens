@@ -1,10 +1,12 @@
 # RootLens screenshot guide
 
-No screenshot image is committed yet. Capture the files below only from a clean local demo with representative synthetic data, then add repository-relative image links to the root README after each referenced file actually exists.
+The release screenshots in this directory document the RootLens web interface, observability tooling, distributed tracing, and CI checks using representative synthetic project data.
+
+These images are referenced by the root README. This guide records the intended composition and privacy requirements so future screenshots can be refreshed consistently.
 
 Use a consistent wide desktop viewport, keep text readable, and avoid covering key content with menus or browser chrome. Diagnosis Detail is the hero screenshot and should receive the strongest composition.
 
-## Required captures
+## Release screenshots
 
 ### 1. `overview.png`
 
@@ -24,13 +26,13 @@ Show the explanation headline, executive summary, deterministic basis, provider 
 
 ### 5. `grafana.png`
 
-Show meaningful RootLens metrics or structured logs. Prefer **RootLens Distributed Services Overview**, **RootLens Distributed Service Logs**, or a focused Explore view correlated by a synthetic request ID.
+Show meaningful RootLens structured logs or metrics. The v1.0 screenshot uses the **RootLens Inventory Logs** dashboard with representative synthetic traffic.
 
 ### 6. `jaeger.png`
 
 Show one distributed trace involving Order, Inventory, and PostgreSQL spans where possible. Use a trace from synthetic demo traffic and expand enough detail to make the cross-service path clear.
 
-### 7. `ci.png` — optional
+### 7. `ci.png`
 
 Show GitHub Actions with the Python 3.12, Frontend Node 22, and Configuration validation jobs green. Crop account navigation and unrelated repository activity when practical.
 
@@ -45,4 +47,4 @@ Never show:
 - database, Grafana, or other credentials;
 - live provider response IDs or private account usage.
 
-Before committing, inspect every image at full resolution, verify that it contains only synthetic project data, and confirm its exact lowercase filename under `docs/screenshots/`.
+Before adding or replacing release screenshots, inspect every image at full resolution, verify that it contains only synthetic project data, and confirm its exact lowercase filename under `docs/screenshots/`.
